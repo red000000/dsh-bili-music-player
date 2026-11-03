@@ -1,0 +1,53 @@
+{
+  "name": "dsh-bili-music-player",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "B 站音乐点歌助手：按画像推荐、软反馈、在线兜底，附带播放条与音频缓存代理",
+  "license": "MIT",
+  "author": "RED",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "bilibili",
+    "music",
+    "player",
+    "recommendation"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "src/*.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/red000000/dsh-bili-music-player.git"
+  },
+  "homepage": "https://github.com/red000000/dsh-bili-music-player#readme"
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Bilibili Music DJ",
+    "description": "Recommends songs from your Bilibili music profile with optional soft feedback (like/skip/dislike); feedback accumulates to improve the next recommendation, and liked tracks go into the agent-owned favorites folder."
+  }
+}
