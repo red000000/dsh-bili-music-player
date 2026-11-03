@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "B 站音乐点歌助手：按画像推荐、软反馈、在线兜底，附带播放条与音频缓存代理",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "author": "RED",
   "keywords": [
     "dsh",

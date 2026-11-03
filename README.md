@@ -49,4 +49,11 @@ bili_music_import({ cookieFile: "C:/path/cookies.json", profileFile: "C:/path/pr
 
 ## 许可
 
-MIT © RED
+[PolyForm Noncommercial 1.0.0](LICENSE)：个人使用、研究、教学、公益与其它非商业用途可自由使用、修改和分发，保留版权声明即可。**商业用途需要作者书面授权**，请开 issue 说明场景。
+
+## 致谢
+
+- [DeepSeek](https://github.com/deepseek-ai/deepseek-harness) — 提供 DSH 与模型能力，本仓库的代码与文档由 AI 协作完成
+- 参与者：DeepSeek-V4.1-Flash 1017（实现与文档）
+- 贡献者：RED（作者、需求与验收）
+
