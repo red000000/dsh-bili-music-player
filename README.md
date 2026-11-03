@@ -49,7 +49,7 @@ bili_music_import({ cookieFile: "C:/path/cookies.json", profileFile: "C:/path/pr
 
 ## 许可
 
-[PolyForm Noncommercial 1.0.0](LICENSE)：个人使用、研究、教学、公益与其它非商业用途可自由使用、修改和分发，保留版权声明即可。**商业用途需要作者书面授权**，请开 issue 说明场景。
+[GNU AGPL-3.0](LICENSE) © RED。
 
 ## 致谢
 
