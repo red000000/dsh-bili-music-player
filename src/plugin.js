@@ -603,6 +603,9 @@ export function apply(ctx, config = {}) {
   // 明显不是「听歌」的标题：教程/解说/剪辑混剪之类，搜索结果里占比不小
   const JUNK_RE = /(教程|教学|申请|攻略|解说|课程|广告|招聘|测评|开箱|直播回放|花絮|混剪|剪辑)/;
   const POOL_MIN = 5;
+  // 单曲时长区间：45 秒（过短多为切片）到 30 分钟（古风长曲、现场、组曲都放得下）
+  const MIN_TRACK_SEC = 45;
+  const MAX_TRACK_SEC = 30 * 60;
   // 探索率：即使画像里有候选，也按这个概率优先给「没听过的」
   const EXPLORE_RATE = 0.5;
   // 泛风格词：用来跳出「你的 Top 歌手」这个小圈子
@@ -619,7 +622,7 @@ export function apply(ctx, config = {}) {
     if (!r.bvid || blocked.has(r.bvid)) return false;
     if (JUNK_RE.test(r.title || '')) return false;
     const secs = parseDurationSec(r.duration);
-    if (secs && (secs < 60 || secs > 900)) return false;
+    if (secs && (secs < MIN_TRACK_SEC || secs > MAX_TRACK_SEC)) return false;
     return MUSIC_TITLE_RE.test(r.title || '') || MUSIC_TNAME_RE.test(r.tname || '');
   }
 
@@ -752,7 +755,12 @@ export function apply(ctx, config = {}) {
   async function playByQuery(query) {
     const results = await searchMusic(query, 10);
     if (!results.length) throw new Error(`没有搜到「${query}」`);
-    const best = results[0];
+    // 优先取时长正常的那条：搜索首条常是长合集或切片
+    const inRange = results.filter((r) => {
+      const secs = parseDurationSec(r.duration);
+      return !secs || (secs >= MIN_TRACK_SEC && secs <= MAX_TRACK_SEC);
+    });
+    const best = inRange[0] || results[0];
     return playBvid(best.bvid, { reason: `搜索「${query}」首条` });
   }
 
