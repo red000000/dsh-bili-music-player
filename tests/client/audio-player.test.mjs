@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createPlayer } from '../../client/player.js';
+import { createAudioPlayer } from '../../client/audio-player.js';
 
-/** 可编程的假 audio 元素，覆盖 player.js 用到的全部成员。 */
+/** 可编程的假 audio 元素，覆盖 audio-player.js 用到的全部成员。 */
 class FakeAudio {
   constructor() {
     this.listeners = new Map();
@@ -44,9 +44,9 @@ let states;
 const setup = () => {
   audio = new FakeAudio();
   states = [];
-  return createPlayer({
+  return createAudioPlayer({
     element: audio,
-    diag: () => {},
+    reportDiagnostic: () => {},
     onState: (snapshot) => states.push(snapshot),
     onError: (message) => states.push({ error: message }),
     onEnded: () => states.push({ ended: true }),
@@ -62,11 +62,11 @@ test('创建时挂上媒体监听', () => {
 
 test('play 与 pause 会把状态推给组件', async () => {
   const player = setup();
-  await player.toggle();
+  await player.togglePlayback();
   assert.equal(audio.paused, false);
   assert.equal(states.at(-1).playing, true);
 
-  await player.toggle();
+  await player.togglePlayback();
   assert.equal(audio.paused, true);
   assert.equal(states.at(-1).playing, false);
 });

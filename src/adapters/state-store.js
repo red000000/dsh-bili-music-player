@@ -5,21 +5,21 @@ import path from 'node:path';
  * 插件的数据落点：state、画像、反馈、登录态、收藏夹缓存。
  * 只做读写，不含任何推荐或播放规则。
  *
- * @param {{base: string, cookieFile?: string, profileFile?: string}} options
+ * @param {{dataDir: string, cookieFile?: string, profileFile?: string}} options
  */
-export function createStore({
-  base,
+export function createStateStore({
+  dataDir,
   cookieFile: cookieFileOption,
   profileFile: profileFileOption,
 }) {
-  const cookieFile = cookieFileOption || path.join(base, 'cookies.json');
-  const profileFile = profileFileOption || path.join(base, 'profile.json');
-  const feedbackLogFile = path.join(base, 'feedback.jsonl'); // 追加式审计流水，不参与统计
-  const feedbackStateFile = path.join(base, 'feedback.json'); // 每首歌一条状态，最后写入者胜出
-  const stateFile = path.join(base, 'state.json');
-  const folderFile = path.join(base, 'agent-folder.json');
+  const cookieFile = cookieFileOption || path.join(dataDir, 'cookies.json');
+  const profileFile = profileFileOption || path.join(dataDir, 'profile.json');
+  const feedbackLogFile = path.join(dataDir, 'feedback.jsonl'); // 追加式审计流水，不参与统计
+  const feedbackStateFile = path.join(dataDir, 'feedback.json'); // 每首歌一条状态，最后写入者胜出
+  const stateFile = path.join(dataDir, 'state.json');
+  const folderFile = path.join(dataDir, 'agent-folder.json');
 
-  fs.mkdirSync(base, { recursive: true });
+  fs.mkdirSync(dataDir, { recursive: true });
 
   const readJson = (file, fallback) => {
     try {
@@ -65,7 +65,7 @@ export function createStore({
     }
   };
   const appendFeedbackLog = (record) => {
-    fs.mkdirSync(base, { recursive: true });
+    fs.mkdirSync(dataDir, { recursive: true });
     fs.appendFileSync(feedbackLogFile, JSON.stringify(record) + '\n', 'utf8');
   };
 
@@ -89,7 +89,7 @@ export function createStore({
 
   return {
     paths: {
-      base,
+      dataDir,
       cookieFile,
       profileFile,
       feedbackLogFile,

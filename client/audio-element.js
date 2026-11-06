@@ -4,7 +4,7 @@
 
 let sharedAudio = null;
 
-export function getAudio() {
+export function getAudioElement() {
   if (sharedAudio) return sharedAudio;
   const element = new Audio();
   // preload=auto：preload=none 时浏览器不建立 seekable 区间，

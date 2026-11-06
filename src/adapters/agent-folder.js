@@ -2,13 +2,13 @@
  * 代理专属收藏夹：唯一的远端写入目标，始终建成私密（privacy=1），
  * 只操作标题匹配的那一个，绝不碰用户既有收藏夹。
  *
- * @param {{bili: Function, cookies: () => object, videoInfo: Function,
+ * @param {{requestBili: Function, cookies: () => object, fetchVideoInfo: Function,
  *   readJson: Function, writeJson: Function, folderFile: string, title: string}} deps
  */
 export function createAgentFolder({
-  bili,
+  requestBili,
   cookies,
-  videoInfo,
+  fetchVideoInfo,
   readJson,
   writeJson,
   folderFile,
@@ -21,14 +21,16 @@ export function createAgentFolder({
     const jar = cookies();
     const mid = jar.DedeUserID;
     if (!mid) throw new Error('未登录：先配置 cookie');
-    const list = await bili('/x/v3/fav/folder/created/list-all', { params: { up_mid: mid } });
+    const list = await requestBili('/x/v3/fav/folder/created/list-all', {
+      params: { up_mid: mid },
+    });
     const found = (list.json?.data?.list || []).find((item) => item.title === title);
     if (found) {
       const record = { id: found.id, title: found.title };
       writeJson(folderFile, record);
       return record;
     }
-    const created = await bili('/x/v3/fav/folder/add', {
+    const created = await requestBili('/x/v3/fav/folder/add', {
       method: 'POST',
       body: new URLSearchParams({
         title,
@@ -45,9 +47,9 @@ export function createAgentFolder({
   /** 把稿件加进收藏夹；B 站要的是 aid 不是 bvid。 */
   async function add(bvid) {
     const target = await folder();
-    const info = await videoInfo(bvid);
+    const info = await fetchVideoInfo(bvid);
     const jar = cookies();
-    const result = await bili('/x/v3/fav/resource/deal', {
+    const result = await requestBili('/x/v3/fav/resource/deal', {
       method: 'POST',
       body: new URLSearchParams({
         rid: String(info.aid),
@@ -64,9 +66,9 @@ export function createAgentFolder({
   /** 从收藏夹移除；用户把 like 改成别的反馈时调用。 */
   async function remove(bvid) {
     const target = await folder();
-    const info = await videoInfo(bvid);
+    const info = await fetchVideoInfo(bvid);
     const jar = cookies();
-    const result = await bili('/x/v3/fav/resource/deal', {
+    const result = await requestBili('/x/v3/fav/resource/deal', {
       method: 'POST',
       body: new URLSearchParams({
         rid: String(info.aid),

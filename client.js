@@ -1,10 +1,10 @@
 (() => {
-  // client/diag.js
+  // client/diagnostics.js
   var enabled = false;
-  function setDiagEnabled(value) {
+  function setDiagnosticsEnabled(value) {
     enabled = Boolean(value);
   }
-  function diag(tag, data) {
+  function reportDiagnostic(tag, data) {
     if (!enabled) return;
     try {
       fetch("/bili-music/debug", {
@@ -17,9 +17,9 @@
     }
   }
 
-  // client/audio.js
+  // client/audio-element.js
   var sharedAudio = null;
-  function getAudio() {
+  function getAudioElement() {
     if (sharedAudio) return sharedAudio;
     const element = new Audio();
     element.preload = "auto";
@@ -33,8 +33,15 @@
     return element;
   }
 
-  // client/loader.js
-  function createLoader({ el, diag: diag2, onLoading, onProgress, onPlaying, onError }) {
+  // client/audio-loader.js
+  function createAudioLoader({
+    el,
+    reportDiagnostic: reportDiagnostic2,
+    onLoading,
+    onProgress,
+    onPlaying,
+    onError
+  }) {
     let currentKey = "";
     let failed = false;
     let abortedKey = "";
@@ -139,7 +146,7 @@
         onLoading(false);
         failed = false;
         onError("");
-        diag2("mse-ready", { bvid: track.bvid, segments: total, duration: mf.duration });
+        reportDiagnostic2("mse-ready", { bvid: track.bvid, segments: total, duration: mf.duration });
         if (shouldPlay) {
           el.play().then(() => onPlaying(true)).catch(() => onError("\u6D4F\u89C8\u5668\u62E6\u622A\u4E86\u81EA\u52A8\u64AD\u653E\uFF0C\u70B9 \u25B6 \u7EE7\u7EED"));
         }
@@ -233,7 +240,7 @@
         onProgress(1);
         onError("");
         failed = false;
-        diag2("blob-ready", { bvid: track.bvid, size: blob.size });
+        reportDiagnostic2("blob-ready", { bvid: track.bvid, size: blob.size });
         if (shouldPlay) {
           el.play().then(() => onPlaying(true)).catch(() => onError("\u6D4F\u89C8\u5668\u62E6\u622A\u4E86\u81EA\u52A8\u64AD\u653E\uFF0C\u70B9 \u25B6 \u7EE7\u7EED"));
         }
@@ -257,7 +264,7 @@
         key,
         timer: setTimeout(() => {
           if (!isCurrent(key) || started) return;
-          diag2("mse-watchdog", { bvid: track.bvid });
+          reportDiagnostic2("mse-watchdog", { bvid: track.bvid });
           abortedKey = key;
           try {
             mediaSource?.endOfStream();
@@ -274,7 +281,7 @@
       loadMse(track, key, shouldPlay, streamUrl).catch((error) => {
         if (!isCurrent(key)) return;
         stopWatchdog(key);
-        diag2("mse-fail", { bvid: track.bvid, err: String(error && error.message) });
+        reportDiagnostic2("mse-fail", { bvid: track.bvid, err: String(error && error.message) });
         if (abortedKey === key) return;
         loadBlob(track, key, shouldPlay, streamUrl).catch((blobError) => {
           if (!isCurrent(key)) return;
@@ -307,14 +314,14 @@
     };
   }
 
-  // client/player.js
-  function createPlayer({ diag: diag2, onState, onError, onEnded, element }) {
-    const el = element || getAudio();
+  // client/audio-player.js
+  function createAudioPlayer({ reportDiagnostic: reportDiagnostic2, onState, onError, onEnded, element }) {
+    const el = element || getAudioElement();
     let lastSeekAt = 0;
     const snapshot = () => ({
       playing: !el.paused,
-      now: el.currentTime || 0,
-      dur: Number.isFinite(el.duration) ? el.duration : 0
+      position: el.currentTime || 0,
+      duration: Number.isFinite(el.duration) ? el.duration : 0
     });
     const notify = () => onState(snapshot());
     const onTime = () => notify();
@@ -336,11 +343,11 @@
     const onLoadedMetadata = () => {
       notify();
       if (Number.isFinite(el.duration)) return;
-      diag2("duration-infinity", { rs: el.readyState, cur: el.currentTime });
+      reportDiagnostic2("duration-infinity", { rs: el.readyState, cur: el.currentTime });
       const onDuration = () => {
         el.removeEventListener("durationchange", onDuration);
         if (Number.isFinite(el.duration)) {
-          diag2("duration-resolved", { dur: +el.duration.toFixed(2) });
+          reportDiagnostic2("duration-resolved", { duration: +el.duration.toFixed(2) });
           try {
             el.currentTime = 0;
           } catch {
@@ -360,7 +367,7 @@
     el.addEventListener("pause", onPause);
     el.addEventListener("ended", onEndedEvent);
     el.addEventListener("error", onErrorEvent);
-    async function toggle() {
+    async function togglePlayback() {
       if (el.ended || el.duration && el.currentTime >= el.duration - 0.2) el.currentTime = 0;
       if (el.paused) {
         await el.play();
@@ -375,12 +382,16 @@
       lastSeekAt = Date.now();
       try {
         el.currentTime = target;
-        onState({ ...snapshot(), now: target });
+        onState({ ...snapshot(), position: target });
       } catch (error) {
-        diag2("seek-throw", { target, err: String(error && error.message) });
+        reportDiagnostic2("seek-throw", { target, err: String(error && error.message) });
         return;
       }
-      diag2("seek-applied", { target: +target.toFixed(2), dur: el.duration, rs: el.readyState });
+      reportDiagnostic2("seek-applied", {
+        target: +target.toFixed(2),
+        duration: el.duration,
+        rs: el.readyState
+      });
     }
     function seekTo(target) {
       if (!Number.isFinite(target) || target < 0) return;
@@ -419,16 +430,16 @@
     function setVolume(value) {
       el.volume = Math.max(0, Math.min(1, value));
     }
-    return { el, toggle, seekTo, seekRatio, setVolume };
+    return { el, togglePlayback, seekTo, seekRatio, setVolume };
   }
 
   // client/playback-store.js
   var state = {
     playing: false,
-    now: 0,
-    dur: 0,
+    position: 0,
+    duration: 0,
     loading: false,
-    loadPct: 0,
+    loadPercent: 0,
     error: ""
   };
   var listeners = /* @__PURE__ */ new Set();
@@ -454,22 +465,26 @@
   var engine = null;
   function getAudioEngine() {
     if (engine) return engine;
-    const el = getAudio();
+    const el = getAudioElement();
     const endedHandlers = /* @__PURE__ */ new Set();
-    const player = createPlayer({
+    const player = createAudioPlayer({
       element: el,
-      diag,
-      onState: (snapshot) => updatePlayback({ playing: snapshot.playing, now: snapshot.now, dur: snapshot.dur }),
+      reportDiagnostic,
+      onState: (snapshot) => updatePlayback({
+        playing: snapshot.playing,
+        position: snapshot.position,
+        duration: snapshot.duration
+      }),
       onError: (message) => updatePlayback({ error: message }),
       onEnded: () => {
         for (const handler of endedHandlers) handler();
       }
     });
-    const loader = createLoader({
+    const loader = createAudioLoader({
       el,
-      diag,
+      reportDiagnostic,
       onLoading: (value) => updatePlayback({ loading: value }),
-      onProgress: (value) => updatePlayback({ loadPct: value }),
+      onProgress: (value) => updatePlayback({ loadPercent: value }),
       onPlaying: (value) => updatePlayback({ playing: value }),
       onError: (message) => updatePlayback({ error: message })
     });
@@ -485,8 +500,8 @@
     return engine;
   }
 
-  // client/bar-boundary.js
-  function createBarBoundary({ React, diag: diag2 }) {
+  // client/player-bar-boundary.js
+  function createPlayerBarBoundary({ React, reportDiagnostic: reportDiagnostic2 }) {
     const h = React.createElement;
     return class BarBoundary extends React.Component {
       constructor(props) {
@@ -497,7 +512,7 @@
         return { err };
       }
       componentDidCatch(err) {
-        diag2("bar-crash", { err: String(err && err.message) });
+        reportDiagnostic2("bar-crash", { err: String(err && err.message) });
       }
       render() {
         if (this.state.err) {
@@ -523,14 +538,14 @@
     };
   }
 
-  // client/theme.js
-  var ACTIONS = [
+  // client/player-bar-theme.js
+  var FEEDBACK_ACTIONS = [
     { key: "like", icon: "\u{1F44D}", label: "\u559C\u6B22", tip: "\u6536\u8FDB\u300C\u70B9\u6B4C\u52A9\u624B\u300D\u6536\u85CF\u5939" },
     { key: "skip", icon: "\u23ED", label: "\u8DF3\u8FC7", tip: "\u8DF3\u8FC7\uFF0C\u6743\u91CD\u51E0\u4E4E\u4E0D\u53D8" },
     { key: "dislike", icon: "\u{1F44E}", label: "\u4E0D\u559C\u6B22", tip: "\u4E4B\u540E\u4E0D\u518D\u63A8\u8350\u8FD9\u9996" }
   ];
-  var MODE_KEY = "bili-music-mode";
-  var STYLE_ID = "bili-music-bar-style";
+  var PLAY_MODE_KEY = "bili-music-mode";
+  var DOCK_STYLE_ID = "bili-music-bar-style";
   var COLORS = {
     label: "var(--dsw-alias-label-primary, #1f1f1f)",
     label2: "var(--dsw-alias-label-secondary, #666)",
@@ -544,22 +559,22 @@
     err: "var(--dsw-alias-state-error-primary, #c62828)"
   };
   function ensureDockStyle() {
-    if (document.getElementById(STYLE_ID)) return;
+    if (document.getElementById(DOCK_STYLE_ID)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID;
+    style.id = DOCK_STYLE_ID;
     style.textContent = "[data-composer-dock]{flex-wrap:wrap!important}";
     document.head.appendChild(style);
   }
 
-  // client/hooks.js
+  // client/player-bar-hooks.js
   function createHooks(React) {
     const { useCallback, useEffect, useRef, useState } = React;
     const NOTICE_TTL_MS = 2400;
     function useServerState() {
-      const [state2, setState] = useState({ current: null, history: [] });
+      const [serverState, setServerState] = useState({ current: null, history: [] });
       const refreshing = useRef(false);
       const mounted = useRef(false);
-      const refresh = useCallback(async () => {
+      const refreshServerState = useCallback(async () => {
         if (refreshing.current) return;
         refreshing.current = true;
         try {
@@ -567,7 +582,7 @@
           if (!res.ok) return;
           const data = await res.json();
           if (!mounted.current) return;
-          setState({ current: data.current || null, history: data.history || [] });
+          setServerState({ current: data.current || null, history: data.history || [] });
         } catch {
         } finally {
           refreshing.current = false;
@@ -575,20 +590,20 @@
       }, []);
       useEffect(() => {
         mounted.current = true;
-        refresh();
-        const timer = setInterval(refresh, 5e3);
+        refreshServerState();
+        const timer = setInterval(refreshServerState, 5e3);
         return () => {
           mounted.current = false;
           clearInterval(timer);
         };
-      }, [refresh]);
-      return { state: state2, refresh, setState };
+      }, [refreshServerState]);
+      return { serverState, refreshServerState, setServerState };
     }
     function useNotice(anchorRef) {
       const [notice, setNotice] = useState(null);
       const timer = useRef(null);
       const mounted = useRef(true);
-      const show = useCallback(
+      const showNotice = useCallback(
         (text, tone = "ok", ev) => {
           let x;
           let y;
@@ -615,19 +630,19 @@
           if (timer.current) clearTimeout(timer.current);
         };
       }, []);
-      return { notice, show };
+      return { notice, showNotice };
     }
     function useMode() {
       const [mode, setMode] = useState(() => {
         try {
-          return localStorage.getItem(MODE_KEY) || "recommend";
+          return localStorage.getItem(PLAY_MODE_KEY) || "recommend";
         } catch {
           return "recommend";
         }
       });
       useEffect(() => {
         try {
-          localStorage.setItem(MODE_KEY, mode);
+          localStorage.setItem(PLAY_MODE_KEY, mode);
         } catch {
         }
       }, [mode]);
@@ -641,7 +656,7 @@
     return { useServerState, useNotice, useMode, usePlayback };
   }
 
-  // client/parts/buttons.js
+  // client/player-bar-parts/buttons.js
   function createButtons({ React, colors }) {
     const h = React.createElement;
     function iconButton({ glyph, title, onClick, disabled = false, active = false, size = 13 }) {
@@ -670,16 +685,16 @@
         glyph
       );
     }
-    function feedbackButton({ item, active, pending, onClick }) {
-      const isActive = active === item.key;
-      const isBusy = pending === item.key;
+    function feedbackButton({ item, activeFeedback, pendingFeedback, onClick }) {
+      const isActive = activeFeedback === item.key;
+      const isBusy = pendingFeedback === item.key;
       return h(
         "button",
         {
           key: item.key,
           type: "button",
           title: isActive ? `\u5DF2\u6807\u8BB0\uFF1A${item.label}\uFF08\u518D\u70B9\u4E00\u6B21\u53D6\u6D88\uFF09` : item.tip,
-          disabled: !!pending,
+          disabled: !!pendingFeedback,
           "aria-pressed": isActive,
           onClick,
           style: {
@@ -689,7 +704,7 @@
             borderRadius: 6,
             width: 24,
             height: 22,
-            cursor: pending ? "wait" : "pointer",
+            cursor: pendingFeedback ? "wait" : "pointer",
             fontSize: 13,
             lineHeight: 1,
             padding: 0,
@@ -713,21 +728,21 @@
     return { iconButton, feedbackButton, modeButton };
   }
 
-  // client/parts/feedback.js
-  function createFeedbackArea({ buttons, actions }) {
-    return function feedbackArea({ active, pending, onSend }) {
+  // client/player-bar-parts/feedback.js
+  function createFeedbackButtons({ buttons, actions }) {
+    return function feedbackArea({ activeFeedback, pendingFeedback, onSend }) {
       return actions.map(
         (item) => buttons.feedbackButton({
           item,
-          active,
-          pending,
+          activeFeedback,
+          pendingFeedback,
           onClick: (event) => onSend(item.key, "", event)
         })
       );
     };
   }
 
-  // client/parts/history.js
+  // client/player-bar-parts/history.js
   function createHistoryPanel({ React, colors, actions }) {
     const h = React.createElement;
     const feedbackText = (feedback) => feedback === "like" ? "\u559C\u6B22" : feedback === "skip" ? "\u8DF3\u8FC7" : feedback ? "\u4E0D\u559C\u6B22" : "";
@@ -841,8 +856,8 @@
     };
   }
 
-  // client/parts/notice.js
-  function createNoticePart({ React, colors }) {
+  // client/player-bar-parts/notice.js
+  function createNotice({ React, colors }) {
     const h = React.createElement;
     return function Notice({ notice, anchor }) {
       if (!notice) return null;
@@ -908,14 +923,14 @@
     };
   }
 
-  // client/parts/progress.js
-  function createProgressPart({ React, colors, getAudio: getAudio2 }) {
+  // client/player-bar-parts/progress.js
+  function createProgress({ React, colors, getAudioElement: getAudioElement2 }) {
     const h = React.createElement;
-    const fmt = (sec) => {
-      if (!Number.isFinite(sec) || sec < 0) return "0:00";
-      return `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+    const formatTime = (seconds) => {
+      if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+      return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
     };
-    function timeLabel({ loading, loadPct, now, duration, onToggleDebug }) {
+    function timeLabel({ loading, loadPercent, position, duration, onToggleDebug }) {
       return h(
         "span",
         {
@@ -930,10 +945,10 @@
             cursor: "pointer"
           }
         },
-        loading ? `\u52A0\u8F7D ${Math.round(loadPct * 100)}%` : `${fmt(now)}/${fmt(duration)}`
+        loading ? `\u52A0\u8F7D ${Math.round(loadPercent * 100)}%` : `${formatTime(position)}/${formatTime(duration)}`
       );
     }
-    function progressBar({ now, dur, onSeek }) {
+    function progressBar({ position, duration, onSeek }) {
       return h(
         "div",
         {
@@ -963,7 +978,7 @@
             style: {
               position: "absolute",
               inset: 0,
-              width: `${dur ? Math.min(100, now / dur * 100) : 0}%`,
+              width: `${duration ? Math.min(100, position / duration * 100) : 0}%`,
               background: colors.brand,
               borderRadius: 2
             }
@@ -972,7 +987,7 @@
       );
     }
     function debugReadout() {
-      const el = getAudio2();
+      const el = getAudioElement2();
       let seekable = "-";
       try {
         seekable = el.seekable && el.seekable.length ? `${el.seekable.start(0).toFixed(0)}-${el.seekable.end(el.seekable.length - 1).toFixed(0)}` : "none";
@@ -990,20 +1005,20 @@
     return { timeLabel, progressBar, debugReadout };
   }
 
-  // client/bar.js
-  function createBar(React) {
+  // client/player-bar.js
+  function createPlayerBar(React) {
     const h = React.createElement;
     const { useEffect, useRef, useState, useCallback } = React;
     const hooks = createHooks(React);
     const buttons = createButtons({ React, colors: COLORS });
-    const feedbackArea = createFeedbackArea({ buttons, actions: ACTIONS });
-    const Notice = createNoticePart({ React, colors: COLORS });
+    const feedbackArea = createFeedbackButtons({ buttons, actions: FEEDBACK_ACTIONS });
+    const Notice = createNotice({ React, colors: COLORS });
     const ErrorToast = createErrorToast({ React, colors: COLORS });
-    const progress = createProgressPart({ React, colors: COLORS, getAudio });
-    const HistoryPanel = createHistoryPanel({ React, colors: COLORS, actions: ACTIONS });
-    const BarBoundary = createBarBoundary({ React, diag });
+    const progress = createProgress({ React, colors: COLORS, getAudioElement });
+    const HistoryPanel = createHistoryPanel({ React, colors: COLORS, actions: FEEDBACK_ACTIONS });
+    const BarBoundary = createPlayerBarBoundary({ React, reportDiagnostic });
     function Bar() {
-      const [pending, setPending] = useState(null);
+      const [pendingFeedback, setPendingFeedback] = useState(null);
       const [mode, setMode] = hooks.useMode();
       const [showHistory, setShowHistory] = useState(false);
       const [debugOn, setDebugOn] = useState(() => {
@@ -1013,7 +1028,7 @@
           return false;
         }
       });
-      const [vol, setVol] = useState(() => {
+      const [volume, setVolume] = useState(() => {
         try {
           const v = parseFloat(localStorage.getItem("bili-music-volume"));
           return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.8;
@@ -1022,41 +1037,41 @@
         }
       });
       const [switching, setSwitching] = useState(false);
-      const autoNextRef = useRef(false);
-      const goNextRef = useRef(null);
+      const autoPlayRef = useRef(false);
+      const changeTrackRef = useRef(null);
       const barRef = useRef(null);
       const switchingRef = useRef(false);
       const engineRef = useRef(null);
-      const volRef = useRef(0.5);
+      const volumeRef = useRef(0.5);
       const modeRef = useRef("recommend");
-      const pendingRef = useRef(false);
+      const pendingFeedbackRef = useRef(false);
       const { useServerState, useNotice, usePlayback } = hooks;
-      const { state: state2, refresh, setState } = useServerState();
-      const { notice, show: showNotice } = useNotice(barRef);
-      const { playing, now, dur, loading, loadPct, error } = usePlayback();
+      const { serverState, refreshServerState, setServerState } = useServerState();
+      const { notice, showNotice } = useNotice(barRef);
+      const { playing, position, duration, loading, loadPercent, error } = usePlayback();
       useEffect(() => {
         modeRef.current = mode;
       }, [mode]);
       useEffect(() => {
-        setDiagEnabled(debugOn);
+        setDiagnosticsEnabled(debugOn);
       }, [debugOn]);
       useEffect(() => {
-        volRef.current = vol;
-        if (engineRef.current) engineRef.current.player.setVolume(vol);
+        volumeRef.current = volume;
+        if (engineRef.current) engineRef.current.player.setVolume(volume);
         try {
-          localStorage.setItem("bili-music-volume", String(vol));
+          localStorage.setItem("bili-music-volume", String(volume));
         } catch {
         }
-      }, [vol]);
+      }, [volume]);
       useEffect(() => {
         ensureDockStyle();
       }, []);
-      const current = state2.current;
-      const active = current && current.feedback || null;
+      const currentTrack = serverState.current;
+      const activeFeedback = currentTrack && currentTrack.feedback || null;
       useEffect(() => {
         const engine2 = getAudioEngine();
         engineRef.current = engine2;
-        engine2.player.setVolume(volRef.current);
+        engine2.player.setVolume(volumeRef.current);
         const off = engine2.subscribeEnded(() => {
           if (modeRef.current === "loop") {
             const { player } = engine2;
@@ -1064,7 +1079,7 @@
             player.el.play().then(() => updatePlayback({ playing: true })).catch(() => updatePlayback({ error: "\u5FAA\u73AF\u64AD\u653E\u88AB\u6D4F\u89C8\u5668\u62E6\u622A\uFF0C\u70B9 \u25B6 \u7EE7\u7EED" }));
             return;
           }
-          goNextRef.current?.();
+          changeTrackRef.current?.();
         });
         return () => {
           off();
@@ -1077,34 +1092,34 @@
         const key = `${track.bvid}|${track.startedAt || ""}`;
         if (engine2.loader.key === key) return;
         const streamUrl = `${track.stream}?t=${encodeURIComponent(track.startedAt || "")}`;
-        updatePlayback({ now: 0, dur: 0, playing: false });
-        const shouldPlay = autoNextRef.current;
-        autoNextRef.current = false;
+        updatePlayback({ position: 0, duration: 0, playing: false });
+        const shouldPlay = autoPlayRef.current;
+        autoPlayRef.current = false;
         engine2.loader.load({ track, key, shouldPlay, streamUrl });
       }, []);
       useEffect(() => {
-        if (!current) return;
-        loadAndMaybePlay(current);
-      }, [current, loadAndMaybePlay]);
-      const toggle = useCallback(async () => {
-        if (!current) return;
+        if (!currentTrack) return;
+        loadAndMaybePlay(currentTrack);
+      }, [currentTrack, loadAndMaybePlay]);
+      const togglePlayback = useCallback(async () => {
+        if (!currentTrack) return;
         updatePlayback({ error: "" });
         const engine2 = engineRef.current;
         if (!engine2) return;
         if (engine2.loader.failed || engine2.player.el.error) {
           engine2.loader.reset();
-          loadAndMaybePlay(current);
+          loadAndMaybePlay(currentTrack);
           return;
         }
         try {
-          await engine2.player.toggle();
+          await engine2.player.togglePlayback();
         } catch (e) {
           if (e && e.name === "NotAllowedError")
             updatePlayback({ error: "\u6D4F\u89C8\u5668\u62E6\u622A\u4E86\u81EA\u52A8\u64AD\u653E\uFF0C\u70B9\u4E00\u4E0B\u9875\u9762\u518D\u6309 \u25B6", playing: false });
           else updatePlayback({ error: `\u64AD\u653E\u5931\u8D25\uFF1A${e && e.message || e}`, playing: false });
         }
-      }, [current, loadAndMaybePlay]);
-      const go = useCallback(
+      }, [currentTrack, loadAndMaybePlay]);
+      const changeTrack = useCallback(
         async (dir, ev) => {
           if (switchingRef.current) return;
           switchingRef.current = true;
@@ -1118,7 +1133,7 @@
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
             if (data.atEnd) {
-              autoNextRef.current = false;
+              autoPlayRef.current = false;
               showNotice(
                 data.message || (dir === "next" ? "\u6CA1\u6709\u4E0B\u4E00\u9996\u4E86\u55B5" : "\u6CA1\u6709\u4E0A\u4E00\u9996\u6B4C\u4E86\u55B5"),
                 "info",
@@ -1126,10 +1141,10 @@
               );
               return;
             }
-            autoNextRef.current = true;
-            await refresh();
+            autoPlayRef.current = true;
+            await refreshServerState();
           } catch (e) {
-            autoNextRef.current = false;
+            autoPlayRef.current = false;
             updatePlayback({
               error: `${dir === "next" ? "\u4E0B\u4E00\u9996" : "\u4E0A\u4E00\u9996"}\u5931\u8D25\uFF1A${e.message || e}`
             });
@@ -1138,29 +1153,32 @@
             setSwitching(false);
           }
         },
-        [mode, refresh, showNotice]
+        [mode, refreshServerState, showNotice]
       );
-      goNextRef.current = () => {
-        void go("next");
+      changeTrackRef.current = () => {
+        void changeTrack("next");
       };
       const seek = useCallback(
         (event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           if (!rect.width) return;
           const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-          diag("click", { ratio: +ratio.toFixed(3), biliDur: current && current.duration });
-          engineRef.current?.player.seekRatio(ratio, current && current.duration);
+          reportDiagnostic("click", {
+            ratio: +ratio.toFixed(3),
+            biliDur: currentTrack && currentTrack.duration
+          });
+          engineRef.current?.player.seekRatio(ratio, currentTrack && currentTrack.duration);
         },
-        [current]
+        [currentTrack]
       );
-      const send = useCallback(
+      const sendFeedback = useCallback(
         async (action, targetBvid, ev) => {
-          if (pendingRef.current) return;
-          const bvid = targetBvid || current && current.bvid;
-          const curFb = targetBvid ? (state2.history.find((x) => x.bvid === targetBvid) || {}).feedback : active;
+          if (pendingFeedbackRef.current) return;
+          const bvid = targetBvid || currentTrack && currentTrack.bvid;
+          const curFb = targetBvid ? (serverState.history.find((x) => x.bvid === targetBvid) || {}).feedback : activeFeedback;
           const next = curFb === action ? "clear" : action;
-          pendingRef.current = true;
-          setPending(action + (targetBvid || ""));
+          pendingFeedbackRef.current = true;
+          setPendingFeedback(action + (targetBvid || ""));
           try {
             const res = await fetch("/bili-music/feedback", {
               method: "POST",
@@ -1169,7 +1187,7 @@
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-            setState((s) => ({
+            setServerState((s) => ({
               ...s,
               current: s.current && s.current.bvid === (bvid || s.current.bvid) ? { ...s.current, feedback: next === "clear" ? null : next } : s.current,
               history: s.history.map(
@@ -1188,18 +1206,19 @@
               else showNotice("\u5DF2\u559C\u6B22", "ok", ev);
             } else if (action === "dislike") showNotice("\u5DF2\u8BB0\u4E0D\u559C\u6B22 \xB7 \u4E0D\u518D\u63A8\u8350", "err", ev);
             else showNotice("\u5DF2\u8DF3\u8FC7", "info", ev);
-            await refresh();
+            await refreshServerState();
           } catch (e) {
             showNotice(`\u53CD\u9988\u5931\u8D25\uFF1A${e.message || e}`, "err", ev);
           } finally {
-            pendingRef.current = false;
-            setPending(null);
+            pendingFeedbackRef.current = false;
+            setPendingFeedback(null);
           }
         },
-        [active, current, refresh, showNotice, state2.history]
+        [activeFeedback, currentTrack, refreshServerState, showNotice, serverState.history]
       );
-      if (!current) return null;
+      if (!currentTrack) return null;
       const iconBtn = (glyph, title, onClick, opts = {}) => buttons.iconButton({ glyph, title, onClick, ...opts });
+      const displayDuration = duration || currentTrack.duration || 0;
       return h(
         "div",
         {
@@ -1234,18 +1253,18 @@
           h(
             "div",
             { style: { display: "flex", alignItems: "center", gap: 2, flexShrink: 0, width: 78 } },
-            iconBtn("\u23EE", "\u4E0A\u4E00\u9996", (e) => go("prev", e), { disabled: switching }),
+            iconBtn("\u23EE", "\u4E0A\u4E00\u9996", (e) => changeTrack("prev", e), { disabled: switching }),
             iconBtn(
               loading ? "\u2026" : playing ? "\u23F8" : "\u25B6",
               loading ? "\u52A0\u8F7D\u4E2D" : playing ? "\u6682\u505C" : "\u64AD\u653E",
-              toggle,
+              togglePlayback,
               { size: 14 }
             ),
-            iconBtn("\u23ED", "\u4E0B\u4E00\u9996", (e) => go("next", e), { disabled: switching })
+            iconBtn("\u23ED", "\u4E0B\u4E00\u9996", (e) => changeTrack("next", e), { disabled: switching })
           ),
           // 封面：切歌时能一眼认出来
-          current.cover ? h("img", {
-            src: current.cover,
+          currentTrack.cover ? h("img", {
+            src: currentTrack.cover,
             alt: "",
             referrerPolicy: "no-referrer",
             style: {
@@ -1273,7 +1292,7 @@
                 alignItems: "baseline",
                 overflow: "hidden"
               },
-              title: current.title
+              title: currentTrack.title
             },
             h(
               "span",
@@ -1286,7 +1305,7 @@
                   flexShrink: 1
                 }
               },
-              current.title
+              currentTrack.title
             ),
             h(
               "span",
@@ -1299,14 +1318,14 @@
                   flexShrink: 2
                 }
               },
-              current.artist || ""
+              currentTrack.artist || ""
             )
           ),
           progress.timeLabel({
             loading,
-            loadPct,
-            now,
-            duration: dur || current.duration || 0,
+            loadPercent,
+            position,
+            duration: displayDuration,
             onToggleDebug: () => {
               setDebugOn((v) => {
                 const next = !v;
@@ -1319,7 +1338,7 @@
             }
           }),
           debugOn ? progress.debugReadout() : null,
-          progress.progressBar({ now, dur, onSeek: seek }),
+          progress.progressBar({ position, duration, onSeek: seek }),
           // 音量：喇叭点一下静音/恢复，滑条微调
           h(
             "div",
@@ -1327,21 +1346,27 @@
             h(
               "span",
               {
-                title: vol > 0 ? "\u9759\u97F3" : "\u6062\u590D\u97F3\u91CF",
-                onClick: () => setVol(vol > 0 ? 0 : 0.8),
+                title: volume > 0 ? "\u9759\u97F3" : "\u6062\u590D\u97F3\u91CF",
+                onClick: () => setVolume(volume > 0 ? 0 : 0.8),
                 style: { fontSize: 11, cursor: "pointer", color: COLORS.label3, lineHeight: 1 }
               },
-              vol === 0 ? "\u{1F507}" : vol < 0.5 ? "\u{1F509}" : "\u{1F50A}"
+              volume === 0 ? "\u{1F507}" : volume < 0.5 ? "\u{1F509}" : "\u{1F50A}"
             ),
             h("input", {
               type: "range",
               min: 0,
               max: 1,
               step: 0.01,
-              value: vol,
-              onChange: (e) => setVol(Number(e.currentTarget.value)),
-              title: `\u97F3\u91CF ${Math.round(vol * 100)}%`,
-              style: { width: 48, height: 14, cursor: "pointer", accentColor: COLORS.brand, margin: 0 }
+              value: volume,
+              onChange: (e) => setVolume(Number(e.currentTarget.value)),
+              title: `\u97F3\u91CF ${Math.round(volume * 100)}%`,
+              style: {
+                width: 48,
+                height: 14,
+                cursor: "pointer",
+                accentColor: COLORS.brand,
+                margin: 0
+              }
             })
           ),
           buttons.modeButton({ mode, onToggle: setMode }),
@@ -1350,21 +1375,21 @@
             "\u64AD\u653E\u5386\u53F2 / \u8865\u53CD\u9988",
             () => {
               setShowHistory((v) => !v);
-              refresh();
+              refreshServerState();
             },
             { active: showHistory, size: 12 }
           ),
-          feedbackArea({ active, pending, onSend: send })
+          feedbackArea({ activeFeedback, pendingFeedback, onSend: sendFeedback })
         ),
         // 浮动提示与错误条：定位与样式在 parts/notice.js
         h(Notice, { notice, anchor: barRef.current }),
         h(ErrorToast, { message: error }),
         h(HistoryPanel, {
           open: showHistory,
-          history: state2.history,
-          currentBvid: current.bvid,
+          history: serverState.history,
+          currentBvid: currentTrack.bvid,
           onClose: () => setShowHistory(false),
-          onFeedback: send
+          onFeedback: sendFeedback
         })
       );
     }
@@ -1379,7 +1404,7 @@
     id: "dsh-bili-music-player",
     factory(require2) {
       const React = require2("react");
-      const Bar = createBar(React);
+      const Bar = createPlayerBar(React);
       return {
         inject: ["slots"],
         apply(ctx) {

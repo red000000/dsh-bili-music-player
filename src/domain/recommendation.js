@@ -32,7 +32,7 @@ const GENRE_WORDS = [
 ];
 
 /** 把 "3:45" 或秒数统一成秒。 */
-export function inDurationRange(duration) {
+export function isInDurationRange(duration) {
   const seconds = parseDurationSec(duration);
   return !seconds || (seconds >= MIN_TRACK_SEC && seconds <= MAX_TRACK_SEC);
 }
@@ -43,7 +43,7 @@ export function parseDurationSec(duration) {
   return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
 }
 
-export function createRecommendation({ store, state, searchMusic, related }) {
+export function createRecommendation({ store, state, searchMusic, fetchRelated }) {
   /**
    * 有效画像 = 静态画像文件 + 实时反馈合并。
    * like 抬分并入池，dislike 剔除；这样不用重跑采集工具，反馈也一定生效。
@@ -229,7 +229,7 @@ export function createRecommendation({ store, state, searchMusic, related }) {
     if (recent.length && Math.random() < 0.5) {
       const seed = recent[Math.floor(Math.random() * Math.min(recent.length, 60))];
       // 相关推荐给的是传输层形状，能不能用是领域规则，过滤留在这里
-      const candidates = await related(seed).catch(() => []);
+      const candidates = await fetchRelated(seed).catch(() => []);
       const usable = candidates.filter((candidate) => usableCandidate(candidate, strictBlock));
       if (usable.length) {
         const pick = usable[Math.floor(Math.random() * Math.min(usable.length, 4))];

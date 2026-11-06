@@ -6,7 +6,7 @@
  * `will-change: transform`，fixed 元素会以它为包含块，被丢到输入框下方几百像素，
  * 把会话滚动区撑大（表现为整块会话跳上去、下面一大片空白）。
  */
-export function createNoticePart({ React, colors }) {
+export function createNotice({ React, colors }) {
   const h = React.createElement;
 
   return function Notice({ notice, anchor }) {

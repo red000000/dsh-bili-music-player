@@ -13,10 +13,10 @@
 | `adapters/manifest.test.mjs` | sidx 解析与损坏索引容错 |
 | `adapters/state-store.test.mjs` | 状态落盘、cookie 头、反馈迁移、坏文件归一化 |
 | `surface/routes.test.mjs` | 缓存 Range 响应、状态接口、错误码、诊断通道 |
-| `client/player.test.mjs` | 媒体监听、seek 夹紧、ended 防抖、音量边界 |
 | `client/audio-engine.test.mjs` | 模块级单例、状态写入、ended 订阅（切会话不重建播放器） |
+| `client/audio-loader.test.mjs` | MSE 起播、整首兜底、同曲去重与失败重试 |
+| `client/audio-player.test.mjs` | 媒体监听、seek 夹紧、ended 防抖、音量边界 |
 | `client/playback-store.test.mjs` | 播放状态单一来源：合并更新、变化通知、退订 |
-| `client/loader.test.mjs` | MSE 起播、整首兜底、同曲去重与失败重试 |
 | `client/notice.test.mjs` | 浮层定位（相对播放条绝对定位，不撑大宿主滚动区） |
 | `client/render.test.mjs` | 构建产物能注册并渲染出播放条 |
 

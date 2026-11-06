@@ -7,14 +7,14 @@ import path from 'node:path';
  */
 
 /**
- * @param {{base: string, store: object, state: object, feedbackStats: Function, feedbackOf: Function,
+ * @param {{dataDir: string, store: object, state: object, feedbackStats: Function, feedbackOf: Function,
  *   profileSummary: Function, playNext: Function, playPrev: Function, submitFeedback: Function,
- *   videoInfo: Function, audioStream: Function, manifestReader: object, audioCache: object,
+ *   fetchVideoInfo: Function, fetchAudioStream: Function, manifestReader: object, audioCache: object,
  *   ensureAudioFile: Function, userAgent: string}} deps
  */
-export function createHandler(deps) {
+export function createRouteHandler(deps) {
   const {
-    base,
+    dataDir,
     store,
     state,
     feedbackStats,
@@ -23,8 +23,8 @@ export function createHandler(deps) {
     playNext,
     playPrev,
     submitFeedback,
-    videoInfo,
-    audioStream,
+    fetchVideoInfo,
+    fetchAudioStream,
     manifestReader,
     audioCache,
     ensureAudioFile,
@@ -53,17 +53,17 @@ export function createHandler(deps) {
   /** 本地缓存直接按 Range 返回；未缓存时把 Range 透传 CDN 并后台落盘。 */
   async function serveStream(req, res, bvid) {
     const range = req.headers.range;
-    const cachedFile = audioCache.fileOf(bvid);
+    const cachedFile = audioCache.filePath(bvid);
     const cachedReady = audioCache.isComplete(cachedFile);
 
     if (!cachedReady) {
       // 只有未缓存时才需要稿件信息（cid）；已缓存时不能再打 B 站接口，
       // 否则每次 Range 请求都要联网，接口挂了连本地缓存也放不了。
-      const info = await videoInfo(bvid);
+      const info = await fetchVideoInfo(bvid);
       ensureAudioFile(bvid, info.cid).catch((error) =>
         console.error('[bili-music] 后台缓存失败', bvid, String(error.message || error)),
       );
-      const stream = await audioStream(bvid, info.cid);
+      const stream = await fetchAudioStream(bvid, info.cid);
       const upstream = await fetch(stream.url, {
         headers: {
           'User-Agent': userAgent,
@@ -197,7 +197,7 @@ export function createHandler(deps) {
     if (url.pathname.startsWith('/bili-music/manifest/')) {
       const bvid = url.pathname.slice('/bili-music/manifest/'.length).replace(/[^A-Za-z0-9]/g, '');
       try {
-        const info = await videoInfo(bvid);
+        const info = await fetchVideoInfo(bvid);
         const manifest = await manifestReader.get(bvid, info.cid);
         if (!manifest) {
           return sendJson(res, 415, { ok: false, error: '该音频没有分段索引，无法边下边播' });
@@ -221,8 +221,8 @@ export function createHandler(deps) {
     if (url.pathname === '/bili-music/debug' && req.method === 'POST') {
       try {
         const line = (await readRaw(req)).slice(0, 4000);
-        fs.mkdirSync(base, { recursive: true });
-        const logFile = path.join(base, 'debug.log');
+        fs.mkdirSync(dataDir, { recursive: true });
+        const logFile = path.join(dataDir, 'debug.log');
         fs.appendFileSync(logFile, `${new Date().toISOString()} ${line}\n`, 'utf8');
         const stat = fs.statSync(logFile);
         if (stat.size > 512 * 1024) fs.writeFileSync(logFile, '', 'utf8');
@@ -238,6 +238,6 @@ export function createHandler(deps) {
 
 /** 把路由挂到宿主 webServer 上；返回卸载函数由 ctx.effect 管理。 */
 export function registerRoutes(ctx, deps) {
-  const handler = createHandler(deps);
+  const handler = createRouteHandler(deps);
   return ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/bili-music', handler }));
 }

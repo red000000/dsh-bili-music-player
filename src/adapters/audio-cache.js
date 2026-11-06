@@ -9,22 +9,27 @@ const PART_TTL_MS = 60 * 60 * 1000; // 进程被杀留下的 .part，超过一�
  * 本地音频缓存：整首下载成 `${bvid}.m4a`，浏览器随后按 Range 取稳定字节。
  * 上游直链会过期、会抖动，落盘后再提供是播放器通行做法。
  *
- * @param {{dir: string, resolveStream: (bvid: string, cid: number, opts?: {fresh?: boolean}) => Promise<{url: string}>,
+ * @param {{directory: string, resolveStream: (bvid: string, cid: number, opts?: {fresh?: boolean}) => Promise<{url: string}>,
  *   userAgent: string, downloadTimeoutMs?: number}} deps
  */
-export function createAudioCache({ dir, resolveStream, userAgent, downloadTimeoutMs = 40000 }) {
+export function createAudioCache({
+  directory,
+  resolveStream,
+  userAgent,
+  downloadTimeoutMs = 40000,
+}) {
   const downloading = new Map(); // bvid -> Promise<filePath>
 
-  const fileOf = (bvid) => path.join(dir, `${bvid}.m4a`);
+  const filePath = (bvid) => path.join(directory, `${bvid}.m4a`);
   const isComplete = (file) => fs.existsSync(file) && fs.statSync(file).size > COMPLETE_MIN_BYTES;
 
   /** 清掉超期半成品与超出上限的旧缓存。 */
   function prune() {
     try {
       const now = Date.now();
-      for (const name of fs.readdirSync(dir)) {
+      for (const name of fs.readdirSync(directory)) {
         if (!name.endsWith('.part')) continue;
-        const full = path.join(dir, name);
+        const full = path.join(directory, name);
         try {
           if (now - fs.statSync(full).mtimeMs > PART_TTL_MS) fs.unlinkSync(full);
         } catch {
@@ -32,10 +37,10 @@ export function createAudioCache({ dir, resolveStream, userAgent, downloadTimeou
         }
       }
       const files = fs
-        .readdirSync(dir)
+        .readdirSync(directory)
         .filter((name) => name.endsWith('.m4a'))
         .map((name) => {
-          const full = path.join(dir, name);
+          const full = path.join(directory, name);
           return { full, at: fs.statSync(full).mtimeMs };
         })
         .sort((a, b) => a.at - b.at);
@@ -100,8 +105,8 @@ export function createAudioCache({ dir, resolveStream, userAgent, downloadTimeou
   }
 
   return {
-    dir,
-    fileOf,
+    directory,
+    filePath,
     isComplete,
     prune,
     /**
@@ -109,8 +114,8 @@ export function createAudioCache({ dir, resolveStream, userAgent, downloadTimeou
      * 首次失败会强制重取直链再试一次（直链默认 30 分钟过期）。
      */
     async ensure(bvid, cid) {
-      fs.mkdirSync(dir, { recursive: true });
-      const file = fileOf(bvid);
+      fs.mkdirSync(directory, { recursive: true });
+      const file = filePath(bvid);
       if (isComplete(file)) return file;
       if (downloading.has(bvid)) return downloading.get(bvid);
 

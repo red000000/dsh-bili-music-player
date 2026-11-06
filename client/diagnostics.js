@@ -5,11 +5,11 @@
 
 let enabled = false;
 
-export function setDiagEnabled(value) {
+export function setDiagnosticsEnabled(value) {
   enabled = Boolean(value);
 }
 
-export function diag(tag, data) {
+export function reportDiagnostic(tag, data) {
   if (!enabled) return;
   try {
     fetch('/bili-music/debug', {

@@ -12,7 +12,7 @@ const output = { schema: { type: 'object', additionalProperties: true }, render:
 /**
  * @param {{ctx: object, state: object, store: object, feedbackOf: Function, profileSummary: Function,
  *   feedbackStats: Function, pickNext: Function, playBvid: Function, playByQuery: Function,
- *   submitFeedback: Function, base: string, cookieFile: string, profileFile: string}} deps
+ *   submitFeedback: Function, dataDir: string, cookieFile: string, profileFile: string}} deps
  */
 export function registerTools(deps) {
   const {
@@ -26,7 +26,7 @@ export function registerTools(deps) {
     playBvid,
     playByQuery,
     submitFeedback,
-    base,
+    dataDir,
     cookieFile,
     profileFile,
   } = deps;
@@ -95,7 +95,7 @@ export function registerTools(deps) {
         history: (state.history || [])
           .slice(0, 20)
           .map((entry) => ({ ...entry, feedback: map[entry.bvid]?.action || null })),
-        paths: { base, cookieFile, profileFile, feedback: store.paths.feedbackStateFile },
+        paths: { dataDir, cookieFile, profileFile, feedback: store.paths.feedbackStateFile },
       };
     },
   });

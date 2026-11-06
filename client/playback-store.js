@@ -7,10 +7,10 @@
 
 const state = {
   playing: false,
-  now: 0,
-  dur: 0,
+  position: 0,
+  duration: 0,
   loading: false,
-  loadPct: 0,
+  loadPercent: 0,
   error: '',
 };
 

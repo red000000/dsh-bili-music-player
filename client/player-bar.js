@@ -2,36 +2,36 @@
  * 播放条组件：dock 内的一行，含播放控制、进度、模式、历史与反馈。
  *
  * 这里是编排层：持有状态、串起副作用，把展示交给 parts/、音频交给
- * player.js 与 loader.js。组件不直接引用 React，由调用方注入，因此可以
+ * audio-player.js 与 audio-loader.js。组件不直接引用 React，由调用方注入，因此可以
  * 脱离 DSH loader 单独渲染测试。
  */
-import { diag, setDiagEnabled } from './diag.js';
-import { getAudio } from './audio.js';
+import { reportDiagnostic, setDiagnosticsEnabled } from './diagnostics.js';
+import { getAudioElement } from './audio-element.js';
 import { getAudioEngine } from './audio-engine.js';
-import { createBarBoundary } from './bar-boundary.js';
-import { createHooks } from './hooks.js';
-import { createButtons } from './parts/buttons.js';
-import { createFeedbackArea } from './parts/feedback.js';
-import { createHistoryPanel } from './parts/history.js';
-import { createErrorToast, createNoticePart } from './parts/notice.js';
-import { createProgressPart } from './parts/progress.js';
+import { createPlayerBarBoundary } from './player-bar-boundary.js';
+import { createHooks } from './player-bar-hooks.js';
+import { createButtons } from './player-bar-parts/buttons.js';
+import { createFeedbackButtons } from './player-bar-parts/feedback.js';
+import { createHistoryPanel } from './player-bar-parts/history.js';
+import { createErrorToast, createNotice } from './player-bar-parts/notice.js';
+import { createProgress } from './player-bar-parts/progress.js';
 import { updatePlayback } from './playback-store.js';
-import { ACTIONS, COLORS as C, ensureDockStyle } from './theme.js';
+import { FEEDBACK_ACTIONS, COLORS, ensureDockStyle } from './player-bar-theme.js';
 
-export function createBar(React) {
+export function createPlayerBar(React) {
   const h = React.createElement;
   const { useEffect, useRef, useState, useCallback } = React;
   const hooks = createHooks(React);
-  const buttons = createButtons({ React, colors: C });
-  const feedbackArea = createFeedbackArea({ buttons, actions: ACTIONS });
-  const Notice = createNoticePart({ React, colors: C });
-  const ErrorToast = createErrorToast({ React, colors: C });
-  const progress = createProgressPart({ React, colors: C, getAudio });
-  const HistoryPanel = createHistoryPanel({ React, colors: C, actions: ACTIONS });
-  const BarBoundary = createBarBoundary({ React, diag });
+  const buttons = createButtons({ React, colors: COLORS });
+  const feedbackArea = createFeedbackButtons({ buttons, actions: FEEDBACK_ACTIONS });
+  const Notice = createNotice({ React, colors: COLORS });
+  const ErrorToast = createErrorToast({ React, colors: COLORS });
+  const progress = createProgress({ React, colors: COLORS, getAudioElement });
+  const HistoryPanel = createHistoryPanel({ React, colors: COLORS, actions: FEEDBACK_ACTIONS });
+  const BarBoundary = createPlayerBarBoundary({ React, reportDiagnostic });
 
   function Bar() {
-    const [pending, setPending] = useState(null);
+    const [pendingFeedback, setPendingFeedback] = useState(null);
     const [mode, setMode] = hooks.useMode();
     const [showHistory, setShowHistory] = useState(false);
     const [debugOn, setDebugOn] = useState(() => {
@@ -41,7 +41,7 @@ export function createBar(React) {
         return false;
       }
     });
-    const [vol, setVol] = useState(() => {
+    const [volume, setVolume] = useState(() => {
       try {
         const v = parseFloat(localStorage.getItem('bili-music-volume'));
         return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.8;
@@ -51,52 +51,52 @@ export function createBar(React) {
     });
     const [switching, setSwitching] = useState(false);
 
-    const autoNextRef = useRef(false);
-    const goNextRef = useRef(null);
+    const autoPlayRef = useRef(false);
+    const changeTrackRef = useRef(null);
     const barRef = useRef(null);
     const switchingRef = useRef(false);
     const engineRef = useRef(null);
-    const volRef = useRef(0.5);
+    const volumeRef = useRef(0.5);
     const modeRef = useRef('recommend');
-    const pendingRef = useRef(false);
+    const pendingFeedbackRef = useRef(false);
 
     const { useServerState, useNotice, usePlayback } = hooks;
-    const { state, refresh, setState } = useServerState();
-    const { notice, show: showNotice } = useNotice(barRef);
+    const { serverState, refreshServerState, setServerState } = useServerState();
+    const { notice, showNotice } = useNotice(barRef);
     // 播放状态来自模块级 store：切会话重建组件后进度、加载与错误都还在
-    const { playing, now, dur, loading, loadPct, error } = usePlayback();
+    const { playing, position, duration, loading, loadPercent, error } = usePlayback();
 
     useEffect(() => {
       modeRef.current = mode;
     }, [mode]);
 
     useEffect(() => {
-      setDiagEnabled(debugOn);
+      setDiagnosticsEnabled(debugOn);
     }, [debugOn]);
 
     useEffect(() => {
-      volRef.current = vol;
-      if (engineRef.current) engineRef.current.player.setVolume(vol);
+      volumeRef.current = volume;
+      if (engineRef.current) engineRef.current.player.setVolume(volume);
       try {
-        localStorage.setItem('bili-music-volume', String(vol));
+        localStorage.setItem('bili-music-volume', String(volume));
       } catch {
         /* 忽略 */
       }
-    }, [vol]);
+    }, [volume]);
 
     useEffect(() => {
       ensureDockStyle();
     }, []);
 
-    const current = state.current;
-    const active = (current && current.feedback) || null;
+    const currentTrack = serverState.current;
+    const activeFeedback = (currentTrack && currentTrack.feedback) || null;
 
     // 模块级音频引擎：播放器与加载器只建一次。会话切换会卸载本组件，
     // 但引擎与 playback-store 都不销毁，音乐继续播；这里只订阅「播完」。
     useEffect(() => {
       const engine = getAudioEngine();
       engineRef.current = engine;
-      engine.player.setVolume(volRef.current);
+      engine.player.setVolume(volumeRef.current);
       const off = engine.subscribeEnded(() => {
         if (modeRef.current === 'loop') {
           const { player } = engine;
@@ -107,7 +107,7 @@ export function createBar(React) {
             .catch(() => updatePlayback({ error: '循环播放被浏览器拦截，点 ▶ 继续' }));
           return;
         }
-        goNextRef.current?.();
+        changeTrackRef.current?.();
       });
       return () => {
         off();
@@ -121,38 +121,38 @@ export function createBar(React) {
       const key = `${track.bvid}|${track.startedAt || ''}`;
       if (engine.loader.key === key) return;
       const streamUrl = `${track.stream}?t=${encodeURIComponent(track.startedAt || '')}`;
-      updatePlayback({ now: 0, dur: 0, playing: false });
-      const shouldPlay = autoNextRef.current;
-      autoNextRef.current = false;
+      updatePlayback({ position: 0, duration: 0, playing: false });
+      const shouldPlay = autoPlayRef.current;
+      autoPlayRef.current = false;
       engine.loader.load({ track, key, shouldPlay, streamUrl });
     }, []);
 
     useEffect(() => {
-      if (!current) return;
-      loadAndMaybePlay(current);
-    }, [current, loadAndMaybePlay]);
+      if (!currentTrack) return;
+      loadAndMaybePlay(currentTrack);
+    }, [currentTrack, loadAndMaybePlay]);
 
-    const toggle = useCallback(async () => {
-      if (!current) return;
+    const togglePlayback = useCallback(async () => {
+      if (!currentTrack) return;
       updatePlayback({ error: '' });
       const engine = engineRef.current;
       if (!engine) return;
       // 上次加载失败（或元素进入 error）：重新走一遍完整加载，而不是退回流式
       if (engine.loader.failed || engine.player.el.error) {
         engine.loader.reset();
-        loadAndMaybePlay(current);
+        loadAndMaybePlay(currentTrack);
         return;
       }
       try {
-        await engine.player.toggle();
+        await engine.player.togglePlayback();
       } catch (e) {
         if (e && e.name === 'NotAllowedError')
           updatePlayback({ error: '浏览器拦截了自动播放，点一下页面再按 ▶', playing: false });
         else updatePlayback({ error: `播放失败：${(e && e.message) || e}`, playing: false });
       }
-    }, [current, loadAndMaybePlay]);
+    }, [currentTrack, loadAndMaybePlay]);
 
-    const go = useCallback(
+    const changeTrack = useCallback(
       async (dir, ev) => {
         // 用 ref 而不是 state 做并发闸门：同一帧内连点两次时 state 还没更新
         if (switchingRef.current) return;
@@ -167,7 +167,7 @@ export function createBar(React) {
           const data = await res.json().catch(() => ({}));
           if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
           if (data.atEnd) {
-            autoNextRef.current = false;
+            autoPlayRef.current = false;
             showNotice(
               data.message || (dir === 'next' ? '没有下一首了喵' : '没有上一首歌了喵'),
               'info',
@@ -175,10 +175,10 @@ export function createBar(React) {
             );
             return;
           }
-          autoNextRef.current = true;
-          await refresh();
+          autoPlayRef.current = true;
+          await refreshServerState();
         } catch (e) {
-          autoNextRef.current = false;
+          autoPlayRef.current = false;
           updatePlayback({
             error: `${dir === 'next' ? '下一首' : '上一首'}失败：${e.message || e}`,
           });
@@ -187,11 +187,11 @@ export function createBar(React) {
           setSwitching(false);
         }
       },
-      [mode, refresh, showNotice],
+      [mode, refreshServerState, showNotice],
     );
 
-    goNextRef.current = () => {
-      void go('next');
+    changeTrackRef.current = () => {
+      void changeTrack('next');
     };
 
     /** 进度条点击：按比例换算成秒，媒体未就绪时用后端时长兜底。 */
@@ -200,23 +200,26 @@ export function createBar(React) {
         const rect = event.currentTarget.getBoundingClientRect();
         if (!rect.width) return;
         const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-        diag('click', { ratio: +ratio.toFixed(3), biliDur: current && current.duration });
-        engineRef.current?.player.seekRatio(ratio, current && current.duration);
+        reportDiagnostic('click', {
+          ratio: +ratio.toFixed(3),
+          biliDur: currentTrack && currentTrack.duration,
+        });
+        engineRef.current?.player.seekRatio(ratio, currentTrack && currentTrack.duration);
       },
-      [current],
+      [currentTrack],
     );
 
-    const send = useCallback(
+    const sendFeedback = useCallback(
       async (action, targetBvid, ev) => {
-        if (pendingRef.current) return;
-        const bvid = targetBvid || (current && current.bvid);
+        if (pendingFeedbackRef.current) return;
+        const bvid = targetBvid || (currentTrack && currentTrack.bvid);
         const curFb = targetBvid
-          ? (state.history.find((x) => x.bvid === targetBvid) || {}).feedback
-          : active;
+          ? (serverState.history.find((x) => x.bvid === targetBvid) || {}).feedback
+          : activeFeedback;
         // 再点一次已选中的反馈 = 取消标记（feedback.json 里删掉这条）
         const next = curFb === action ? 'clear' : action;
-        pendingRef.current = true;
-        setPending(action + (targetBvid || ''));
+        pendingFeedbackRef.current = true;
+        setPendingFeedback(action + (targetBvid || ''));
         try {
           const res = await fetch('/bili-music/feedback', {
             method: 'POST',
@@ -225,8 +228,8 @@ export function createBar(React) {
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-          // 先本地标记：refresh 可能正被轮询占用而跳过，否则按钮看起来没反应
-          setState((s) => ({
+          // 先本地标记：refreshServerState 可能正被轮询占用而跳过，否则按钮看起来没反应
+          setServerState((s) => ({
             ...s,
             current:
               s.current && s.current.bvid === (bvid || s.current.bvid)
@@ -248,22 +251,24 @@ export function createBar(React) {
             else showNotice('已喜欢', 'ok', ev);
           } else if (action === 'dislike') showNotice('已记不喜欢 · 不再推荐', 'err', ev);
           else showNotice('已跳过', 'info', ev);
-          await refresh();
+          await refreshServerState();
         } catch (e) {
           showNotice(`反馈失败：${e.message || e}`, 'err', ev);
         } finally {
-          pendingRef.current = false;
-          setPending(null);
+          pendingFeedbackRef.current = false;
+          setPendingFeedback(null);
         }
       },
-      [active, current, refresh, showNotice, state.history],
+      [activeFeedback, currentTrack, refreshServerState, showNotice, serverState.history],
     );
 
-    if (!current) return null;
+    if (!currentTrack) return null;
 
     // 调用点用的是位置参数，这里做一次形状适配，渲染逻辑在 parts/buttons.js
     const iconBtn = (glyph, title, onClick, opts = {}) =>
       buttons.iconButton({ glyph, title, onClick, ...opts });
+
+    const displayDuration = duration || currentTrack.duration || 0;
 
     return h(
       'div',
@@ -281,7 +286,7 @@ export function createBar(React) {
           justifyContent: 'flex-start',
           padding: '2px 0 4px',
           font: '12px/1.4 system-ui, sans-serif',
-          color: C.label,
+          color: COLORS.label,
         },
       },
       h(
@@ -299,20 +304,20 @@ export function createBar(React) {
         h(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0, width: 78 } },
-          iconBtn('⏮', '上一首', (e) => go('prev', e), { disabled: switching }),
+          iconBtn('⏮', '上一首', (e) => changeTrack('prev', e), { disabled: switching }),
           iconBtn(
             loading ? '…' : playing ? '⏸' : '▶',
             loading ? '加载中' : playing ? '暂停' : '播放',
-            toggle,
+            togglePlayback,
             { size: 14 },
           ),
-          iconBtn('⏭', '下一首', (e) => go('next', e), { disabled: switching }),
+          iconBtn('⏭', '下一首', (e) => changeTrack('next', e), { disabled: switching }),
         ),
 
         // 封面：切歌时能一眼认出来
-        current.cover
+        currentTrack.cover
           ? h('img', {
-              src: current.cover,
+              src: currentTrack.cover,
               alt: '',
               referrerPolicy: 'no-referrer',
               style: {
@@ -321,7 +326,7 @@ export function createBar(React) {
                 borderRadius: 4,
                 objectFit: 'cover',
                 flexShrink: 0,
-                background: C.layer3,
+                background: COLORS.layer3,
               },
               onError: (e) => {
                 e.currentTarget.style.display = 'none';
@@ -342,7 +347,7 @@ export function createBar(React) {
               alignItems: 'baseline',
               overflow: 'hidden',
             },
-            title: current.title,
+            title: currentTrack.title,
           },
           h(
             'span',
@@ -355,28 +360,28 @@ export function createBar(React) {
                 flexShrink: 1,
               },
             },
-            current.title,
+            currentTrack.title,
           ),
           h(
             'span',
             {
               style: {
-                color: C.label2,
+                color: COLORS.label2,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 flexShrink: 2,
               },
             },
-            current.artist || '',
+            currentTrack.artist || '',
           ),
         ),
 
         progress.timeLabel({
           loading,
-          loadPct,
-          now,
-          duration: dur || current.duration || 0,
+          loadPercent,
+          position,
+          duration: displayDuration,
           onToggleDebug: () => {
             setDebugOn((v) => {
               const next = !v;
@@ -392,7 +397,7 @@ export function createBar(React) {
 
         debugOn ? progress.debugReadout() : null,
 
-        progress.progressBar({ now, dur, onSeek: seek }),
+        progress.progressBar({ position, duration, onSeek: seek }),
 
         // 音量：喇叭点一下静音/恢复，滑条微调
         h(
@@ -401,21 +406,27 @@ export function createBar(React) {
           h(
             'span',
             {
-              title: vol > 0 ? '静音' : '恢复音量',
-              onClick: () => setVol(vol > 0 ? 0 : 0.8),
-              style: { fontSize: 11, cursor: 'pointer', color: C.label3, lineHeight: 1 },
+              title: volume > 0 ? '静音' : '恢复音量',
+              onClick: () => setVolume(volume > 0 ? 0 : 0.8),
+              style: { fontSize: 11, cursor: 'pointer', color: COLORS.label3, lineHeight: 1 },
             },
-            vol === 0 ? '🔇' : vol < 0.5 ? '🔉' : '🔊',
+            volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊',
           ),
           h('input', {
             type: 'range',
             min: 0,
             max: 1,
             step: 0.01,
-            value: vol,
-            onChange: (e) => setVol(Number(e.currentTarget.value)),
-            title: `音量 ${Math.round(vol * 100)}%`,
-            style: { width: 48, height: 14, cursor: 'pointer', accentColor: C.brand, margin: 0 },
+            value: volume,
+            onChange: (e) => setVolume(Number(e.currentTarget.value)),
+            title: `音量 ${Math.round(volume * 100)}%`,
+            style: {
+              width: 48,
+              height: 14,
+              cursor: 'pointer',
+              accentColor: COLORS.brand,
+              margin: 0,
+            },
           }),
         ),
 
@@ -425,12 +436,12 @@ export function createBar(React) {
           '播放历史 / 补反馈',
           () => {
             setShowHistory((v) => !v);
-            refresh();
+            refreshServerState();
           },
           { active: showHistory, size: 12 },
         ),
 
-        feedbackArea({ active, pending, onSend: send }),
+        feedbackArea({ activeFeedback, pendingFeedback, onSend: sendFeedback }),
       ),
 
       // 浮动提示与错误条：定位与样式在 parts/notice.js
@@ -440,10 +451,10 @@ export function createBar(React) {
 
       h(HistoryPanel, {
         open: showHistory,
-        history: state.history,
-        currentBvid: current.bvid,
+        history: serverState.history,
+        currentBvid: currentTrack.bvid,
         onClose: () => setShowHistory(false),
-        onFeedback: send,
+        onFeedback: sendFeedback,
       }),
     );
   }

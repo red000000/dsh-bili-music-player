@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
 
-export const UA =
+export const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 const HEADERS = {
-  'User-Agent': UA,
+  'User-Agent': USER_AGENT,
   Referer: 'https://www.bilibili.com/',
   Accept: 'application/json, text/plain, */*',
   'Accept-Language': 'zh-CN,zh;q=0.9',
@@ -33,7 +33,7 @@ const mapSearch = (list, limit) =>
  *
  * @param {{cookieHeader: () => string, userAgent?: string}} deps
  */
-export function createBilibili({ cookieHeader, userAgent = UA }) {
+export function createBilibili({ cookieHeader, userAgent = USER_AGENT }) {
   let wbi = null;
   const searchCache = new Map(); // `${keyword}|${page}` -> { at, list }
   const streamCache = new Map(); // bvid -> { url, at }
@@ -41,7 +41,7 @@ export function createBilibili({ cookieHeader, userAgent = UA }) {
   const STREAM_TTL_MS = 30 * 60 * 1000;
   let wbiBrokenUntil = 0;
 
-  async function bili(pathname, { params, method = 'GET', body, timeoutMs = 8000 } = {}) {
+  async function requestBili(pathname, { params, method = 'GET', body, timeoutMs = 8000 } = {}) {
     const url = new URL(pathname, 'https://api.bilibili.com');
     if (params) {
       for (const [key, value] of Object.entries(params)) {
@@ -63,7 +63,7 @@ export function createBilibili({ cookieHeader, userAgent = UA }) {
 
   async function getWbiKey() {
     if (wbi && Date.now() - wbi.at < 30 * 60 * 1000) return wbi.key;
-    const res = await bili('/x/web-interface/nav');
+    const res = await requestBili('/x/web-interface/nav');
     const img = res.json?.data?.wbi_img || {};
     const pick = (url) => (String(url).match(/\/([^/]+)\.png/) || [])[1] || '';
     const raw = pick(img.img_url) + pick(img.sub_url);
@@ -94,7 +94,7 @@ export function createBilibili({ cookieHeader, userAgent = UA }) {
         .createHash('md5')
         .update(query + key)
         .digest('hex');
-      const res = await bili('/x/web-interface/wbi/search/type', { params });
+      const res = await requestBili('/x/web-interface/wbi/search/type', { params });
       const list = mapSearch(res.json?.data?.result || [], limit);
       if (list.length) {
         searchCache.set(cacheKey, { at: Date.now(), list });
@@ -117,7 +117,7 @@ export function createBilibili({ cookieHeader, userAgent = UA }) {
     const key = cacheKey || `${keyword}|${page}`;
     const hit = searchCache.get(key);
     if (hit && Date.now() - hit.at < SEARCH_TTL) return hit.list.slice(0, limit);
-    const res = await bili('/x/web-interface/search/type', {
+    const res = await requestBili('/x/web-interface/search/type', {
       params: { search_type: 'video', keyword, page },
     });
     const list = mapSearch(res.json?.data?.result || [], limit);
@@ -125,8 +125,8 @@ export function createBilibili({ cookieHeader, userAgent = UA }) {
     return list;
   }
 
-  async function videoInfo(bvid) {
-    const res = await bili('/x/web-interface/view', { params: { bvid, tag: 1 } });
+  async function fetchVideoInfo(bvid) {
+    const res = await requestBili('/x/web-interface/view', { params: { bvid, tag: 1 } });
     if (res.json?.code !== 0) throw new Error(`取稿件失败: ${res.json?.message || res.status}`);
     const data = res.json.data;
     return {
@@ -143,7 +143,7 @@ export function createBilibili({ cookieHeader, userAgent = UA }) {
   }
 
   /** 并发探测各镜像首包耗时，取第一个成功的；全失败退回第一个。 */
-  async function fastestUrl(urls) {
+  async function pickFastestUrl(urls) {
     const probe = (url) =>
       fetch(url, {
         headers: {
@@ -172,11 +172,13 @@ export function createBilibili({ cookieHeader, userAgent = UA }) {
    * 音频直链：同一 BV 的后续 Range 请求必须命中同一条直链，
    * 否则浏览器会因 Content-Range 总长变化而放弃 seek。
    */
-  async function audioStream(bvid, cid, { fresh = false } = {}) {
+  async function fetchAudioStream(bvid, cid, { fresh = false } = {}) {
     const hit = streamCache.get(bvid);
     if (!fresh && hit && Date.now() - hit.at < STREAM_TTL_MS) return hit;
 
-    const res = await bili('/x/player/playurl', { params: { bvid, cid, fnval: 4048, fourk: 1 } });
+    const res = await requestBili('/x/player/playurl', {
+      params: { bvid, cid, fnval: 4048, fourk: 1 },
+    });
     const dash = res.json?.data?.dash;
     if (!dash) throw new Error(`取流失败: ${res.json?.message || 'no dash'}`);
     const audios = dash.audio || [];
@@ -190,15 +192,15 @@ export function createBilibili({ cookieHeader, userAgent = UA }) {
       best.baseUrl || best.base_url,
       ...(best.backupUrl || best.backup_url || []),
     ].filter(Boolean);
-    const chosen = urls.length > 1 ? await fastestUrl(urls) : urls[0];
+    const chosen = urls.length > 1 ? await pickFastestUrl(urls) : urls[0];
     const record = { url: chosen, urls, bandwidth: best.bandwidth, id: best.id, at: Date.now() };
     streamCache.set(bvid, record);
     return record;
   }
 
   /** 相关推荐：以一首歌为种子找相似稿件，返回未过滤的传输层形状。 */
-  async function related(bvid) {
-    const res = await bili('/x/web-interface/archive/related', { params: { bvid } });
+  async function fetchRelated(bvid) {
+    const res = await requestBili('/x/web-interface/archive/related', { params: { bvid } });
     return (res.json?.data || []).map((item) => ({
       bvid: item.bvid,
       title: String(item.title || '').replace(/<[^>]+>/g, ''),
@@ -208,5 +210,13 @@ export function createBilibili({ cookieHeader, userAgent = UA }) {
     }));
   }
 
-  return { bili, getWbiKey, searchMusic, videoInfo, audioStream, fastestUrl, related };
+  return {
+    requestBili,
+    getWbiKey,
+    searchMusic,
+    fetchVideoInfo,
+    fetchAudioStream,
+    pickFastestUrl,
+    fetchRelated,
+  };
 }

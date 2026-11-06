@@ -18,12 +18,12 @@ const makeHarness = ({ folderFails = false } = {}) => {
       saved.push(record);
     },
   };
-  const trackMeta = (bvid) => ({ bvid, title: `曲目${bvid}`, artist: '歌手' });
+  const trackMetadata = (bvid) => ({ bvid, title: `曲目${bvid}`, artist: '歌手' });
   const feedback = createFeedback({
     store,
     state,
     saveState: () => {},
-    trackMeta,
+    trackMetadata,
     feedbackOf: (bvid) => store.map[bvid]?.action || null,
     addToAgentFolder: async (bvid) =>
       folderFails ? Promise.reject(new Error('收藏夹失败')) : { folder: '点歌助手', bvid },

@@ -10,7 +10,7 @@ import { Writable } from 'node:stream';
  * 不该再访问 B 站接口」这条回归。领域动作全部用假实现。
  */
 
-import { createHandler } from '../../src/surface/routes.js';
+import { createRouteHandler } from '../../src/surface/routes.js';
 
 const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'bili-music-routes-'));
 
@@ -44,9 +44,9 @@ const makeReq = ({ method = 'GET', url = '/', headers = {}, body } = {}) => ({
 const finished = (res) => new Promise((resolve) => res.on('finish', resolve));
 
 function makeDeps(overrides = {}) {
-  const dir = tempDir();
+  const directory = tempDir();
   const deps = {
-    base: dir,
+    dataDir: directory,
     store: { readFeedbackState: () => ({}), paths: {} },
     state: { current: null, history: [], cursor: 0 },
     feedbackStats: () => ({ total: 0 }),
@@ -55,28 +55,28 @@ function makeDeps(overrides = {}) {
     playNext: async () => ({ track: null }),
     playPrev: async () => ({ atEnd: true }),
     submitFeedback: async () => ({ action: 'like' }),
-    videoInfo: async () => {
+    fetchVideoInfo: async () => {
       throw new Error('已缓存时不该访问 B 站接口');
     },
-    audioStream: async () => ({ url: 'https://example.invalid/audio' }),
+    fetchAudioStream: async () => ({ url: 'https://example.invalid/audio' }),
     manifestReader: { get: async () => null },
     audioCache: {
-      fileOf: (bvid) => path.join(dir, `${bvid}.m4a`),
+      filePath: (bvid) => path.join(directory, `${bvid}.m4a`),
       isComplete: (file) => fs.existsSync(file) && fs.statSync(file).size > 100 * 1024,
     },
     ensureAudioFile: async () => {},
     userAgent: 'test-agent',
     ...overrides,
   };
-  return { deps, dir };
+  return { deps, directory };
 }
 
 test('已缓存的音频直接按 Range 返回，不再请求 B 站接口', async () => {
-  const { deps, dir } = makeDeps();
+  const { deps, directory } = makeDeps();
   const size = 200 * 1024;
-  fs.writeFileSync(path.join(dir, 'BV1.m4a'), Buffer.alloc(size, 7));
+  fs.writeFileSync(path.join(directory, 'BV1.m4a'), Buffer.alloc(size, 7));
 
-  const handler = createHandler(deps);
+  const handler = createRouteHandler(deps);
   const res = makeRes();
   await handler(makeReq({ url: '/bili-music/stream/BV1', headers: { range: 'bytes=0-9' } }), res);
   await finished(res);
@@ -90,10 +90,10 @@ test('已缓存的音频直接按 Range 返回，不再请求 B 站接口', asyn
 });
 
 test('Range 越界返回 416', async () => {
-  const { deps, dir } = makeDeps();
-  fs.writeFileSync(path.join(dir, 'BV2.m4a'), Buffer.alloc(200 * 1024, 1));
+  const { deps, directory } = makeDeps();
+  fs.writeFileSync(path.join(directory, 'BV2.m4a'), Buffer.alloc(200 * 1024, 1));
 
-  const handler = createHandler(deps);
+  const handler = createRouteHandler(deps);
   const res = makeRes();
   await handler(
     makeReq({ url: '/bili-music/stream/BV2', headers: { range: 'bytes=999999-' } }),
@@ -117,7 +117,7 @@ test('/state 把反馈并进当前曲与历史', async () => {
   });
 
   const res = makeRes();
-  await createHandler(deps)(makeReq({ url: '/bili-music/state' }), res);
+  await createRouteHandler(deps)(makeReq({ url: '/bili-music/state' }), res);
   const payload = res.json();
 
   assert.equal(payload.ok, true);
@@ -135,7 +135,7 @@ test('反馈失败返回 400 与错误信息', async () => {
   });
 
   const res = makeRes();
-  await createHandler(deps)(
+  await createRouteHandler(deps)(
     makeReq({ method: 'POST', url: '/bili-music/feedback', body: '{"action":"love"}' }),
     res,
   );
@@ -145,22 +145,22 @@ test('反馈失败返回 400 与错误信息', async () => {
 });
 
 test('诊断通道把客户端日志写进 debug.log', async () => {
-  const { deps, dir } = makeDeps();
+  const { deps, directory } = makeDeps();
 
   const res = makeRes();
-  await createHandler(deps)(
+  await createRouteHandler(deps)(
     makeReq({ method: 'POST', url: '/bili-music/debug', body: '{"tag":"probe"}' }),
     res,
   );
 
   assert.equal(res.statusCode, 200);
-  const log = fs.readFileSync(path.join(dir, 'debug.log'), 'utf8');
+  const log = fs.readFileSync(path.join(directory, 'debug.log'), 'utf8');
   assert.match(log, /"tag":"probe"/);
 });
 
 test('未知路径返回 404', async () => {
   const { deps } = makeDeps();
   const res = makeRes();
-  await createHandler(deps)(makeReq({ url: '/bili-music/nope' }), res);
+  await createRouteHandler(deps)(makeReq({ url: '/bili-music/nope' }), res);
   assert.equal(res.statusCode, 404);
 });

@@ -59,7 +59,7 @@ test('播放状态写进模块级 store 并通知订阅者', async () => {
 
   let notified = 0;
   const off = subscribePlayback(() => notified++);
-  await engine.player.toggle();
+  await engine.player.togglePlayback();
 
   assert.equal(getPlaybackState().playing, true);
   assert.ok(notified > 0, '状态变化应通知订阅者');

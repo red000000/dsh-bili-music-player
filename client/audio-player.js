@@ -1,4 +1,4 @@
-import { getAudio } from './audio.js';
+import { getAudioElement } from './audio-element.js';
 
 /**
  * 音频外部系统：持有 audio 元素、监听媒体事件、处理 seek 与播放开关。
@@ -6,18 +6,18 @@ import { getAudio } from './audio.js';
  * 按 React 官方建议，这类需要多个 Effect 协调的命令式逻辑不放在组件里，
  * 而抽成一个普通对象；组件只订阅 onState 拿快照，不关心内部细节。
  *
- * @param {{diag: Function, onState: (state: {playing: boolean, now: number, dur: number}) => void,
+ * @param {{reportDiagnostic: Function, onState: (state: {playing: boolean, position: number, duration: number}) => void,
  *   onError: (message: string) => void, onEnded: () => void, element?: HTMLAudioElement}} deps
  *   element 可注入，便于测试；不传时用模块级单例。
  */
-export function createPlayer({ diag, onState, onError, onEnded, element }) {
-  const el = element || getAudio();
+export function createAudioPlayer({ reportDiagnostic, onState, onError, onEnded, element }) {
+  const el = element || getAudioElement();
   let lastSeekAt = 0;
 
   const snapshot = () => ({
     playing: !el.paused,
-    now: el.currentTime || 0,
-    dur: Number.isFinite(el.duration) ? el.duration : 0,
+    position: el.currentTime || 0,
+    duration: Number.isFinite(el.duration) ? el.duration : 0,
   });
   const notify = () => onState(snapshot());
 
@@ -47,11 +47,11 @@ export function createPlayer({ diag, onState, onError, onEnded, element }) {
   const onLoadedMetadata = () => {
     notify();
     if (Number.isFinite(el.duration)) return;
-    diag('duration-infinity', { rs: el.readyState, cur: el.currentTime });
+    reportDiagnostic('duration-infinity', { rs: el.readyState, cur: el.currentTime });
     const onDuration = () => {
       el.removeEventListener('durationchange', onDuration);
       if (Number.isFinite(el.duration)) {
-        diag('duration-resolved', { dur: +el.duration.toFixed(2) });
+        reportDiagnostic('duration-resolved', { duration: +el.duration.toFixed(2) });
         try {
           el.currentTime = 0;
         } catch {
@@ -76,7 +76,7 @@ export function createPlayer({ diag, onState, onError, onEnded, element }) {
   el.addEventListener('error', onErrorEvent);
 
   /** 切换播放/暂停；返回是否成功，失败时由组件决定提示什么。 */
-  async function toggle() {
+  async function togglePlayback() {
     if (el.ended || (el.duration && el.currentTime >= el.duration - 0.2)) el.currentTime = 0;
     if (el.paused) {
       await el.play();
@@ -92,12 +92,16 @@ export function createPlayer({ diag, onState, onError, onEnded, element }) {
     lastSeekAt = Date.now();
     try {
       el.currentTime = target;
-      onState({ ...snapshot(), now: target });
+      onState({ ...snapshot(), position: target });
     } catch (error) {
-      diag('seek-throw', { target, err: String(error && error.message) });
+      reportDiagnostic('seek-throw', { target, err: String(error && error.message) });
       return;
     }
-    diag('seek-applied', { target: +target.toFixed(2), dur: el.duration, rs: el.readyState });
+    reportDiagnostic('seek-applied', {
+      target: +target.toFixed(2),
+      duration: el.duration,
+      rs: el.readyState,
+    });
   }
 
   /**
@@ -148,5 +152,5 @@ export function createPlayer({ diag, onState, onError, onEnded, element }) {
     el.volume = Math.max(0, Math.min(1, value));
   }
 
-  return { el, toggle, seekTo, seekRatio, setVolume };
+  return { el, togglePlayback, seekTo, seekRatio, setVolume };
 }

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
  * 用假的 fetch / MediaSource / audio 元素跑，不联网也不需要浏览器。
  */
 
-import { createLoader } from '../../client/loader.js';
+import { createAudioLoader } from '../../client/audio-loader.js';
 
 const TRACK = { bvid: 'BV1', startedAt: '2026-11-06T00:00:00.000Z' };
 const KEY = 'BV1|2026-11-06T00:00:00.000Z';
@@ -106,7 +106,7 @@ test('manifest 不可用时退回整首下载，并回调起播', async (t) => {
   });
   globalThis.fetch = fakeFetch().fetch;
 
-  const loader = createLoader({ el, diag: () => {}, ...ui });
+  const loader = createAudioLoader({ el, reportDiagnostic: () => {}, ...ui });
   loader.load({ track: TRACK, key: KEY, shouldPlay: true, streamUrl: STREAM });
   await waitFor(() => lastEvent(ui.events, 'playing')?.[1] === true);
 
@@ -152,7 +152,7 @@ test('MSE 可用时分片喂给 SourceBuffer，首段就绪即起播', async (t)
 
   const el = fakeAudio();
   const ui = collect();
-  const loader = createLoader({ el, diag: () => {}, ...ui });
+  const loader = createAudioLoader({ el, reportDiagnostic: () => {}, ...ui });
   loader.load({ track: TRACK, key: KEY, shouldPlay: true, streamUrl: STREAM });
   await waitFor(() => lastEvent(ui.events, 'playing')?.[1] === true);
 
@@ -171,7 +171,7 @@ test('同一个 key 重复调用不会重新加载', async (t) => {
   });
   globalThis.fetch = net.fetch;
 
-  const loader = createLoader({ el, diag: () => {}, ...ui });
+  const loader = createAudioLoader({ el, reportDiagnostic: () => {}, ...ui });
   loader.load({ track: TRACK, key: KEY, shouldPlay: true, streamUrl: STREAM });
   await waitFor(() => lastEvent(ui.events, 'playing')?.[1] === true);
   loader.load({ track: TRACK, key: KEY, shouldPlay: true, streamUrl: STREAM });
@@ -191,7 +191,7 @@ test('reset 清空当前键，同一首可以重新加载', async (t) => {
   });
   globalThis.fetch = net.fetch;
 
-  const loader = createLoader({ el, diag: () => {}, ...ui });
+  const loader = createAudioLoader({ el, reportDiagnostic: () => {}, ...ui });
   loader.load({ track: TRACK, key: KEY, shouldPlay: true, streamUrl: STREAM });
   await waitFor(() => lastEvent(ui.events, 'playing')?.[1] === true);
 
@@ -211,7 +211,7 @@ test('两条链路都失败时报告错误并标记 failed，供重试判断', a
   });
   globalThis.fetch = fakeFetch({ streamOk: false }).fetch;
 
-  const loader = createLoader({ el, diag: () => {}, ...ui });
+  const loader = createAudioLoader({ el, reportDiagnostic: () => {}, ...ui });
   loader.load({ track: TRACK, key: KEY, shouldPlay: false, streamUrl: STREAM });
   await waitFor(() => Boolean(lastEvent(ui.events, 'error')?.[1]));
 

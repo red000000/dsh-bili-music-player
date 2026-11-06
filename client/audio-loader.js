@@ -7,14 +7,21 @@
  *
  * @param {{
  *   el: HTMLAudioElement,
- *   diag: (tag: string, data?: object) => void,
+ *   reportDiagnostic: (tag: string, data?: object) => void,
  *   onLoading: (loading: boolean) => void,
  *   onProgress: (ratio: number) => void,
  *   onPlaying: (playing: boolean) => void,
  *   onError: (message: string) => void,
  * }} deps
  */
-export function createLoader({ el, diag, onLoading, onProgress, onPlaying, onError }) {
+export function createAudioLoader({
+  el,
+  reportDiagnostic,
+  onLoading,
+  onProgress,
+  onPlaying,
+  onError,
+}) {
   /** 当前已加载的曲目键；异步回调靠它判断自己是否已经过期。 */
   let currentKey = '';
   /** 上一次加载是否失败：失败后点播放要整条重来，而不是调 toggle。 */
@@ -140,7 +147,7 @@ export function createLoader({ el, diag, onLoading, onProgress, onPlaying, onErr
       onLoading(false);
       failed = false;
       onError('');
-      diag('mse-ready', { bvid: track.bvid, segments: total, duration: mf.duration });
+      reportDiagnostic('mse-ready', { bvid: track.bvid, segments: total, duration: mf.duration });
       if (shouldPlay) {
         el.play()
           .then(() => onPlaying(true))
@@ -247,7 +254,7 @@ export function createLoader({ el, diag, onLoading, onProgress, onPlaying, onErr
       onProgress(1);
       onError('');
       failed = false;
-      diag('blob-ready', { bvid: track.bvid, size: blob.size });
+      reportDiagnostic('blob-ready', { bvid: track.bvid, size: blob.size });
       if (shouldPlay) {
         el.play()
           .then(() => onPlaying(true))
@@ -282,7 +289,7 @@ export function createLoader({ el, diag, onLoading, onProgress, onPlaying, onErr
       key,
       timer: setTimeout(() => {
         if (!isCurrent(key) || started) return;
-        diag('mse-watchdog', { bvid: track.bvid });
+        reportDiagnostic('mse-watchdog', { bvid: track.bvid });
         abortedKey = key;
         try {
           mediaSource?.endOfStream();
@@ -301,7 +308,7 @@ export function createLoader({ el, diag, onLoading, onProgress, onPlaying, onErr
     loadMse(track, key, shouldPlay, streamUrl).catch((error) => {
       if (!isCurrent(key)) return;
       stopWatchdog(key);
-      diag('mse-fail', { bvid: track.bvid, err: String(error && error.message) });
+      reportDiagnostic('mse-fail', { bvid: track.bvid, err: String(error && error.message) });
       // 看门狗已经切到整首下载，避免两条链路同时写同一个 audio
       if (abortedKey === key) return;
       // MSE 不可用（极少见）时退回整首下载，保证能播且能 seek

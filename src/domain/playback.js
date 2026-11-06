@@ -10,20 +10,20 @@ const QUEUE_FILL_GUARD = 6;
 export function createPlayback({
   state,
   saveState,
-  videoInfo,
-  audioStream,
+  fetchVideoInfo,
+  fetchAudioStream,
   ensureAudioFile,
   searchMusic,
   pickNext,
   feedbackOf,
-  inDurationRange,
+  isInDurationRange,
   recentWindow,
   queueTarget = QUEUE_TARGET,
 }) {
   const historyAt = (index) => (state.history || [])[index];
 
   /** 历史、队列里都能查到元数据；都没有时给占位标题。 */
-  function trackMeta(bvid) {
+  function trackMetadata(bvid) {
     if (state.current?.bvid === bvid) return state.current;
     const known =
       (state.history || []).find((entry) => entry.bvid === bvid) ||
@@ -75,8 +75,8 @@ export function createPlayback({
    * - fromHistory：只在历史里移动光标，不改写历史顺序
    */
   async function playBvid(bvid, { reason = '', fromHistory = false, source = 'profile' } = {}) {
-    const info = await videoInfo(bvid);
-    await audioStream(bvid, info.cid); // 先确认可播放，失败时不污染状态
+    const info = await fetchVideoInfo(bvid);
+    await fetchAudioStream(bvid, info.cid); // 先确认可播放，失败时不污染状态
     const track = {
       bvid,
       aid: info.aid,
@@ -131,7 +131,7 @@ export function createPlayback({
   async function playByQuery(query) {
     const results = await searchMusic(query, 10);
     if (!results.length) throw new Error(`没有搜到「${query}」`);
-    const inRange = results.filter((candidate) => inDurationRange(candidate.duration));
+    const inRange = results.filter((candidate) => isInDurationRange(candidate.duration));
     const best = inRange[0] || results[0];
     return playBvid(best.bvid, { reason: `搜索「${query}」首条` });
   }
@@ -183,5 +183,5 @@ export function createPlayback({
     };
   }
 
-  return { playBvid, playByQuery, fillQueue, playNext, playPrev, trackMeta };
+  return { playBvid, playByQuery, fillQueue, playNext, playPrev, trackMetadata };
 }

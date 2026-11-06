@@ -3,14 +3,14 @@
  * 颜色全部走宿主的设计令牌，取不到时退回硬编码值。
  */
 
-export const ACTIONS = [
+export const FEEDBACK_ACTIONS = [
   { key: 'like', icon: '👍', label: '喜欢', tip: '收进「点歌助手」收藏夹' },
   { key: 'skip', icon: '⏭', label: '跳过', tip: '跳过，权重几乎不变' },
   { key: 'dislike', icon: '👎', label: '不喜欢', tip: '之后不再推荐这首' },
 ];
 
-export const MODE_KEY = 'bili-music-mode';
-export const STYLE_ID = 'bili-music-bar-style';
+export const PLAY_MODE_KEY = 'bili-music-mode';
+export const DOCK_STYLE_ID = 'bili-music-bar-style';
 
 export const COLORS = {
   label: 'var(--dsw-alias-label-primary, #1f1f1f)',
@@ -27,9 +27,9 @@ export const COLORS = {
 
 /** 让 dock 换行并把内容靠左；只注入一次，之后靠 id 命中。 */
 export function ensureDockStyle() {
-  if (document.getElementById(STYLE_ID)) return;
+  if (document.getElementById(DOCK_STYLE_ID)) return;
   const style = document.createElement('style');
-  style.id = STYLE_ID;
+  style.id = DOCK_STYLE_ID;
   // 只让 dock 换行；行内对齐交给各自元素，统计行保持默认居中
   style.textContent = '[data-composer-dock]{flex-wrap:wrap!important}';
   document.head.appendChild(style);

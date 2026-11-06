@@ -13,7 +13,7 @@ export function createFeedback({
   store,
   state,
   saveState,
-  trackMeta,
+  trackMetadata,
   feedbackOf,
   addToAgentFolder,
   removeFromAgentFolder,
@@ -23,7 +23,7 @@ export function createFeedback({
     const bvid = targetBvid || state.current?.bvid;
     if (!bvid) throw new Error('没有可反馈的曲目');
     assertAction(action);
-    const meta = trackMeta(bvid);
+    const meta = trackMetadata(bvid);
     const map = store.readFeedbackState();
     const prev = map[bvid]?.action || null;
     map[bvid] = {
@@ -60,7 +60,7 @@ export function createFeedback({
         action: null,
         prev: null,
         changed: false,
-        track: { ...trackMeta(bvid), feedback: null },
+        track: { ...trackMetadata(bvid), feedback: null },
       };
     }
     const meta = map[bvid];
@@ -78,7 +78,7 @@ export function createFeedback({
       action: null,
       prev,
       changed: true,
-      track: { ...trackMeta(bvid), feedback: null },
+      track: { ...trackMetadata(bvid), feedback: null },
       stats: { total: Object.keys(map).length, unique: Object.keys(map).length },
     };
   }
@@ -98,7 +98,7 @@ export function createFeedback({
           action: null,
           prev: null,
           changed: false,
-          track: { ...trackMeta(bvid), feedback: null },
+          track: { ...trackMetadata(bvid), feedback: null },
           saved: null,
         };
       }
@@ -118,7 +118,7 @@ export function createFeedback({
         prev,
         changed: false,
         duplicated: true,
-        track: { ...trackMeta(bvid), feedback: action },
+        track: { ...trackMetadata(bvid), feedback: action },
         saved: null,
       };
     }

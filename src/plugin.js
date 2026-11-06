@@ -12,15 +12,15 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createManifestReader } from './adapters/manifest.js';
-import { createStore } from './adapters/state-store.js';
-import { UA, createBilibili } from './adapters/bilibili.js';
+import { createStateStore } from './adapters/state-store.js';
+import { USER_AGENT, createBilibili } from './adapters/bilibili.js';
 import { createAudioCache } from './adapters/audio-cache.js';
 import { createAgentFolder } from './adapters/agent-folder.js';
 import { createPlayback } from './domain/playback.js';
 import { registerRoutes } from './surface/routes.js';
 import { registerTools } from './surface/tools.js';
 import { createFeedback } from './domain/feedback.js';
-import { createRecommendation, inDurationRange, RECENT_WINDOW } from './domain/recommendation.js';
+import { createRecommendation, isInDurationRange, RECENT_WINDOW } from './domain/recommendation.js';
 
 export const name = 'bili-music-player';
 export const inject = ['tools', 'webServer'];
@@ -28,11 +28,11 @@ export const inject = ['tools', 'webServer'];
 const DEFAULT_FOLDER_TITLE = '点歌助手';
 
 export function apply(ctx, config = {}) {
-  const base = config.dataDir || path.join(os.homedir(), '.dsh', 'bili-music');
+  const dataDir = config.dataDir || path.join(os.homedir(), '.dsh', 'bili-music');
   // ---------- 存储 ----------
   // 存储细节在 adapters/state-store.js；这里解构出与旧代码兼容的读写函数。
-  const store = createStore({
-    base,
+  const store = createStateStore({
+    dataDir,
     cookieFile: config.cookieFile,
     profileFile: config.profileFile,
   });
@@ -43,32 +43,33 @@ export function apply(ctx, config = {}) {
 
   // ---------- B 站请求 ----------
   // 传输细节在 adapters/bilibili.js；这里只保留共享实例。
-  const { bili, searchMusic, videoInfo, audioStream, related } = createBilibili({ cookieHeader });
+  const { requestBili, searchMusic, fetchVideoInfo, fetchAudioStream, fetchRelated } =
+    createBilibili({ cookieHeader });
 
   // ---------- 本地音频缓存 ----------
   // 下载与 LRU 在 adapters/audio-cache.js；这里注入缓存目录与取流方式。
   const audioCache = createAudioCache({
-    dir: path.join(base, 'cache'),
-    resolveStream: audioStream,
-    userAgent: UA,
+    directory: path.join(dataDir, 'cache'),
+    resolveStream: fetchAudioStream,
+    userAgent: USER_AGENT,
   });
-  const audioCacheDir = audioCache.dir;
+  const audioCacheDir = audioCache.directory;
   const ensureAudioFile = (bvid, cid) => audioCache.ensure(bvid, cid);
 
   // ---------- 分段清单（MSE 边下边播用） ----------
   // 解析在 adapters/manifest.js；这里只负责装配缓存目录与取流方式。
   const manifestReader = createManifestReader({
     cacheDir: audioCacheDir,
-    resolveStream: audioStream,
-    userAgent: UA,
+    resolveStream: fetchAudioStream,
+    userAgent: USER_AGENT,
   });
 
   // ---------- 代理专属收藏夹（唯一可写目标） ----------
   // 远端交互在 adapters/agent-folder.js；这里只注入依赖。
   const agentFolder = createAgentFolder({
-    bili,
+    requestBili,
     cookies,
-    videoInfo,
+    fetchVideoInfo,
     readJson,
     writeJson,
     folderFile,
@@ -81,7 +82,7 @@ export function apply(ctx, config = {}) {
     store,
     state,
     searchMusic,
-    related,
+    fetchRelated,
   });
   const { profileSummary, feedbackStats, feedbackOf, pickNext } = recommendation;
 
@@ -90,20 +91,20 @@ export function apply(ctx, config = {}) {
   const playback = createPlayback({
     state,
     saveState,
-    videoInfo,
-    audioStream,
+    fetchVideoInfo,
+    fetchAudioStream,
     ensureAudioFile,
     searchMusic,
     pickNext,
     feedbackOf,
-    inDurationRange,
+    isInDurationRange,
     recentWindow: RECENT_WINDOW,
   });
   const feedback = createFeedback({
     store,
     state,
     saveState,
-    trackMeta: playback.trackMeta,
+    trackMetadata: playback.trackMetadata,
     feedbackOf,
     addToAgentFolder: agentFolder.add,
     removeFromAgentFolder: agentFolder.remove,
@@ -114,7 +115,7 @@ export function apply(ctx, config = {}) {
   // ---------- 入口 ----------
   // 路由与工具在 surface/；这里只把依赖装配进去。
   registerRoutes(ctx, {
-    base,
+    dataDir,
     store,
     state,
     feedbackStats,
@@ -123,12 +124,12 @@ export function apply(ctx, config = {}) {
     playNext,
     playPrev,
     submitFeedback,
-    videoInfo,
-    audioStream,
+    fetchVideoInfo,
+    fetchAudioStream,
     manifestReader,
     audioCache,
     ensureAudioFile,
-    userAgent: UA,
+    userAgent: USER_AGENT,
   });
 
   registerTools({
@@ -142,7 +143,7 @@ export function apply(ctx, config = {}) {
     playBvid,
     playByQuery,
     submitFeedback,
-    base,
+    dataDir,
     cookieFile,
     profileFile,
   });

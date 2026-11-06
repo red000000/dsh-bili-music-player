@@ -4,7 +4,7 @@
 
 ### 变更
 
-- Client 按职责拆成 loader / player / hooks / parts，`client/bar.js` 只做编排（999 → 516 行）
+- Client 按职责拆成 audio-loader / audio-player / player-bar-hooks / parts，`client/player-bar.js` 只做编排（999 → 467 行）
 - 已标记的反馈按钮再点一次可取消标记（原来只提示「已经是这个反馈了」）
 - 加载链路补离线测试：MSE 起播、整首兜底、同曲去重、失败重试
 

@@ -1,9 +1,9 @@
 /**
  * 自定义 hook 工厂：client 侧不能 import react，统一从宿主注入的 React 上取。
- * 由 createBar 调用一次，返回稳定的 hook 引用。
+ * 由 createPlayerBar 调用一次，返回稳定的 hook 引用。
  */
 import { getPlaybackState, subscribePlayback } from './playback-store.js';
-import { MODE_KEY } from './theme.js';
+import { PLAY_MODE_KEY } from './player-bar-theme.js';
 
 export function createHooks(React) {
   const { useCallback, useEffect, useRef, useState } = React;
@@ -15,11 +15,11 @@ export function createHooks(React) {
    * 同时暴露 setState，供反馈成功后做乐观更新。
    */
   function useServerState() {
-    const [state, setState] = useState({ current: null, history: [] });
+    const [serverState, setServerState] = useState({ current: null, history: [] });
     const refreshing = useRef(false);
     const mounted = useRef(false);
 
-    const refresh = useCallback(async () => {
+    const refreshServerState = useCallback(async () => {
       if (refreshing.current) return;
       refreshing.current = true;
       try {
@@ -27,7 +27,7 @@ export function createHooks(React) {
         if (!res.ok) return;
         const data = await res.json();
         if (!mounted.current) return;
-        setState({ current: data.current || null, history: data.history || [] });
+        setServerState({ current: data.current || null, history: data.history || [] });
       } catch {
         /* 网络抖动忽略，下次轮询会补上 */
       } finally {
@@ -37,15 +37,15 @@ export function createHooks(React) {
 
     useEffect(() => {
       mounted.current = true;
-      refresh();
-      const timer = setInterval(refresh, 5000);
+      refreshServerState();
+      const timer = setInterval(refreshServerState, 5000);
       return () => {
         mounted.current = false;
         clearInterval(timer);
       };
-    }, [refresh]);
+    }, [refreshServerState]);
 
-    return { state, refresh, setState };
+    return { serverState, refreshServerState, setServerState };
   }
 
   /** 浮层提示：优先从鼠标点击处冒出，没有坐标时退回播放条上方。 */
@@ -54,7 +54,7 @@ export function createHooks(React) {
     const timer = useRef(null);
     const mounted = useRef(true);
 
-    const show = useCallback(
+    const showNotice = useCallback(
       (text, tone = 'ok', ev) => {
         let x;
         let y;
@@ -83,7 +83,7 @@ export function createHooks(React) {
       };
     }, []);
 
-    return { notice, show };
+    return { notice, showNotice };
   }
 
   /**
@@ -92,7 +92,7 @@ export function createHooks(React) {
   function useMode() {
     const [mode, setMode] = useState(() => {
       try {
-        return localStorage.getItem(MODE_KEY) || 'recommend';
+        return localStorage.getItem(PLAY_MODE_KEY) || 'recommend';
       } catch {
         return 'recommend';
       }
@@ -100,7 +100,7 @@ export function createHooks(React) {
 
     useEffect(() => {
       try {
-        localStorage.setItem(MODE_KEY, mode);
+        localStorage.setItem(PLAY_MODE_KEY, mode);
       } catch {
         /* 忽略 */
       }

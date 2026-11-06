@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
  * 所以两个浮层必须相对播放条绝对定位。
  */
 
-import { createErrorToast, createNoticePart } from '../../client/parts/notice.js';
+import { createErrorToast, createNotice } from '../../client/player-bar-parts/notice.js';
 
 const fakeReact = {
   createElement: (tag, props, ...children) => ({ tag, props, children }),
@@ -16,7 +16,7 @@ const fakeReact = {
 const colors = { err: '#c62828' };
 
 test('提示浮层相对播放条绝对定位，并换算成播放条坐标', () => {
-  const Notice = createNoticePart({ React: fakeReact, colors });
+  const Notice = createNotice({ React: fakeReact, colors });
   const anchor = { getBoundingClientRect: () => ({ left: 100, top: 900, width: 400 }) };
 
   const node = Notice({ notice: { text: '已取消标记', tone: 'info', x: 180, y: 916 }, anchor });

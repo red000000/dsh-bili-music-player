@@ -6,13 +6,13 @@
  * 因此本目录的源码由 esbuild 打包成根目录的 client.js 交付。
  */
 
-import { createBar } from './bar.js';
+import { createPlayerBar } from './player-bar.js';
 
 window.__ModuleLoader__.load({
   id: 'dsh-bili-music-player',
   factory(require) {
     const React = require('react');
-    const Bar = createBar(React);
+    const Bar = createPlayerBar(React);
 
     return {
       inject: ['slots'],

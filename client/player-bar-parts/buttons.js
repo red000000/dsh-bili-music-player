@@ -32,16 +32,16 @@ export function createButtons({ React, colors }) {
     );
   }
 
-  function feedbackButton({ item, active, pending, onClick }) {
-    const isActive = active === item.key;
-    const isBusy = pending === item.key;
+  function feedbackButton({ item, activeFeedback, pendingFeedback, onClick }) {
+    const isActive = activeFeedback === item.key;
+    const isBusy = pendingFeedback === item.key;
     return h(
       'button',
       {
         key: item.key,
         type: 'button',
         title: isActive ? `已标记：${item.label}（再点一次取消）` : item.tip,
-        disabled: !!pending,
+        disabled: !!pendingFeedback,
         'aria-pressed': isActive,
         onClick,
         style: {
@@ -53,7 +53,7 @@ export function createButtons({ React, colors }) {
           borderRadius: 6,
           width: 24,
           height: 22,
-          cursor: pending ? 'wait' : 'pointer',
+          cursor: pendingFeedback ? 'wait' : 'pointer',
           fontSize: 13,
           lineHeight: 1,
           padding: 0,

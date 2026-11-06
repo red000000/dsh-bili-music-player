@@ -1,7 +1,7 @@
 /**
  * 播放历史面板：贴着播放条上方展开，可对历史曲目补/改反馈。
  *
- * 纯展示：取数、提交与提示都在 bar.js；这里只把点击转成 onFeedback 回调。
+ * 纯展示：取数、提交与提示都在 player-bar.js；这里只把点击转成 onFeedback 回调。
  */
 export function createHistoryPanel({ React, colors, actions }) {
   const h = React.createElement;

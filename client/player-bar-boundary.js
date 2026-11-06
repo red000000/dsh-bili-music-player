@@ -2,7 +2,7 @@
  * 播放条的错误边界：组件内部崩了要显示错误，而不是整条播放条消失。
  * （上一版就是因为一个未定义变量，播放条直接不见了。）
  */
-export function createBarBoundary({ React, diag }) {
+export function createPlayerBarBoundary({ React, reportDiagnostic }) {
   const h = React.createElement;
 
   return class BarBoundary extends React.Component {
@@ -16,7 +16,7 @@ export function createBarBoundary({ React, diag }) {
     }
 
     componentDidCatch(err) {
-      diag('bar-crash', { err: String(err && err.message) });
+      reportDiagnostic('bar-crash', { err: String(err && err.message) });
     }
 
     render() {
