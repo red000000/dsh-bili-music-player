@@ -5,7 +5,7 @@ import {
   inDurationRange,
   parseDurationSec,
   createRecommendation,
-} from '../src/domain/recommendation.js';
+} from '../../src/domain/recommendation.js';
 
 const fakeStore = (profile, feedback) => ({
   readProfile: () => profile,
@@ -43,7 +43,7 @@ test('dislike 的曲目与歌手不会进入候选', () => {
     store,
     state: { recent: [], history: [] },
     searchMusic: async () => [],
-    relatedCandidates: async () => [],
+    related: async () => [],
   });
   const songs = recommendation.profileSummary().songs.map((song) => song.bvid);
   assert.deepEqual(songs, ['BV2']);
@@ -57,7 +57,7 @@ test('like 不在画像里的曲目会被补进候选', () => {
     store,
     state: { recent: [], history: [] },
     searchMusic: async () => [],
-    relatedCandidates: async () => [],
+    related: async () => [],
   });
   const songs = recommendation.profileSummary().songs;
   assert.ok(songs.some((song) => song.bvid === 'BV9' && song.score === 6));
@@ -70,7 +70,34 @@ test('最近听过的曲目被会话护栏挡住', () => {
     store,
     state,
     searchMusic: async () => [],
-    relatedCandidates: async () => [],
+    related: async () => [],
   });
   assert.equal(recommendation.recommend({}).pick, null);
+});
+
+test('相关推荐里被拉黑、或明显不是歌的候选会在领域层被过滤', async () => {
+  const store = fakeStore(profile, {
+    BV9: { action: 'dislike', title: '旧曲', artist: '周杰伦' },
+  });
+  const state = { recent: ['BV1'], history: [] };
+  const recommendation = createRecommendation({
+    store,
+    state,
+    searchMusic: async () => [],
+    related: async () => [
+      { bvid: 'BV9', title: '稻香 完整版', duration: '3:00', tname: '音乐' },
+      { bvid: 'BV8', title: '某教程 第 1 集', duration: '3:00', tname: '音乐' },
+      { bvid: 'BV7', title: '晴天 翻唱', duration: '3:00', tname: '音乐' },
+    ],
+  });
+
+  const realRandom = Math.random;
+  Math.random = () => 0;
+  try {
+    const online = await recommendation.recommendOnline({});
+    assert.equal(online.bvid, 'BV7', '应跳过已 dislike 与教程类候选');
+    assert.equal(online.keyword, '相关推荐');
+  } finally {
+    Math.random = realRandom;
+  }
 });

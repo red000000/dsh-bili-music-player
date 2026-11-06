@@ -1,6 +1,6 @@
 {
   "name": "dsh-bili-music-player",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "B 站音乐点歌助手：按画像推荐、软反馈、在线兜底，附带播放条与音频缓存代理",
   "license": "AGPL-3.0-only",
@@ -26,6 +26,7 @@
     "index.js",
     "src/**/*.js",
     "client.js",
+    "client/**/*.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
@@ -61,7 +62,7 @@
   },
   "scripts": {
     "build": "esbuild client/index.js --bundle --format=iife --platform=browser --target=chrome110 --legal-comments=none --outfile=client.js",
-    "test": "node --test --test-isolation=none tests/*.test.mjs",
+    "test": "node --test --test-isolation=none \"tests/**/*.test.mjs\"",
     "format": "prettier --write src client index.js tests eslint.config.js .prettierrc.json package.json",
     "lint": "eslint ."
   }

@@ -6,17 +6,30 @@ const dataDir = path.join(WORK, '.tmp/search-test');
 fs.rmSync(dataDir, { recursive: true, force: true });
 fs.mkdirSync(dataDir, { recursive: true });
 
-const plugin = await import(new URL('../index.js', import.meta.url).href + '?v=' + Date.now());
+const plugin = await import(new URL('../../index.js', import.meta.url).href + '?v=' + Date.now());
 const tools = new Map();
-plugin.apply({
-  effect(fn) { return fn(); },
-  tools: { register(t) { tools.set(t.name, t); } },
-  webServer: { register() { return () => {}; } },
-}, {
-  dataDir,
-  cookieFile: path.join(WORK, '.tmp/bili-music/cookies.json'),
-  profileFile: path.join(WORK, 'data/bili-music-profile-2026-10-31.json'),
-});
+plugin.apply(
+  {
+    effect(fn) {
+      return fn();
+    },
+    tools: {
+      register(t) {
+        tools.set(t.name, t);
+      },
+    },
+    webServer: {
+      register() {
+        return () => {};
+      },
+    },
+  },
+  {
+    dataDir,
+    cookieFile: path.join(WORK, '.tmp/bili-music/cookies.json'),
+    profileFile: path.join(WORK, 'data/bili-music-profile-2026-10-31.json'),
+  },
+);
 
 for (const q of ['周杰伦 稻香', '音乐', '陈奕迅']) {
   try {

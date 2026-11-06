@@ -36,11 +36,15 @@ export function createHandler(deps) {
     res.end(JSON.stringify(payload));
   };
 
-  const readBody = async (req) => {
+  const readRaw = async (req) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
+    return Buffer.concat(chunks).toString('utf8');
+  };
+
+  const readBody = async (req) => {
     try {
-      return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      return JSON.parse((await readRaw(req)) || '{}');
     } catch {
       return {};
     }
@@ -49,11 +53,13 @@ export function createHandler(deps) {
   /** 本地缓存直接按 Range 返回；未缓存时把 Range 透传 CDN 并后台落盘。 */
   async function serveStream(req, res, bvid) {
     const range = req.headers.range;
-    const info = await videoInfo(bvid);
     const cachedFile = audioCache.fileOf(bvid);
     const cachedReady = audioCache.isComplete(cachedFile);
 
     if (!cachedReady) {
+      // 只有未缓存时才需要稿件信息（cid）；已缓存时不能再打 B 站接口，
+      // 否则每次 Range 请求都要联网，接口挂了连本地缓存也放不了。
+      const info = await videoInfo(bvid);
       ensureAudioFile(bvid, info.cid).catch((error) =>
         console.error('[bili-music] 后台缓存失败', bvid, String(error.message || error)),
       );
@@ -147,8 +153,8 @@ export function createHandler(deps) {
     }
 
     if (url.pathname === '/bili-music/next' && req.method === 'POST') {
-      await readBody(req);
       try {
+        await readBody(req);
         return sendJson(res, 200, { ok: true, ...(await playNext()) });
       } catch (error) {
         return sendJson(res, 400, { ok: false, error: String(error.message || error) });
@@ -157,6 +163,7 @@ export function createHandler(deps) {
 
     if (url.pathname === '/bili-music/prev' && req.method === 'POST') {
       try {
+        await readBody(req); // 客户端带 body 时先读完，避免 keep-alive 连接上残留
         return sendJson(res, 200, { ok: true, ...(await playPrev()) });
       } catch (error) {
         return sendJson(res, 400, { ok: false, error: String(error.message || error) });
@@ -172,8 +179,8 @@ export function createHandler(deps) {
     }
 
     if (url.pathname === '/bili-music/feedback' && req.method === 'POST') {
-      const body = await readBody(req);
       try {
+        const body = await readBody(req);
         return sendJson(res, 200, {
           ok: true,
           ...(await submitFeedback(
@@ -213,8 +220,7 @@ export function createHandler(deps) {
     // 前端诊断通道：桌面版没有 DevTools 时，把日志写进文件由 agent 读取
     if (url.pathname === '/bili-music/debug' && req.method === 'POST') {
       try {
-        const body = await readBody(req);
-        const line = JSON.stringify(body).slice(0, 4000);
+        const line = (await readRaw(req)).slice(0, 4000);
         fs.mkdirSync(base, { recursive: true });
         const logFile = path.join(base, 'debug.log');
         fs.appendFileSync(logFile, `${new Date().toISOString()} ${line}\n`, 'utf8');

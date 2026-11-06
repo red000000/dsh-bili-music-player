@@ -1,28 +1,36 @@
 # tests
 
-手动回归脚本，不参与 CI（项目目前 `profile: tool`，见 `../AGENTS.md`）。
+目录镜像 `src/` 与 `client/`，离线测试与联网回归分开。
 
-## 运行
+## 离线测试（`npm test`）
+
+不联网、不需要登录态，覆盖纯逻辑与组件渲染：
+
+| 文件 | 覆盖 |
+|---|---|
+| `domain/recommendation.test.mjs` | 画像合并、时长过滤、会话护栏、在线候选过滤 |
+| `domain/feedback.test.mjs` | 一歌一票、收藏夹同步、dislike 清理队列 |
+| `adapters/manifest.test.mjs` | sidx 解析与损坏索引容错 |
+| `adapters/state-store.test.mjs` | 状态落盘、cookie 头、反馈迁移、坏文件归一化 |
+| `surface/routes.test.mjs` | 缓存 Range 响应、状态接口、错误码、诊断通道 |
+| `client/player.test.mjs` | 媒体监听、seek 夹紧、ended 防抖、音量边界 |
+| `client/loader.test.mjs` | MSE 起播、整首兜底、同曲去重与失败重试 |
+| `client/notice.test.mjs` | 浮层定位（相对播放条绝对定位，不撑大宿主滚动区） |
+| `client/render.test.mjs` | 构建产物能注册并渲染出播放条 |
 
 ```sh
-node tests/run-range.js     # 音频缓存 + Range 语义（200 / 206 / 416 / 后缀范围）
-node tests/run-online.js    # 画像池耗尽时的在线兜底
-node tests/run-queue.js     # 播放队列：下一首取新歌、上一首回历史
-node tests/run-manifest.js  # MSE 分段清单：init/segment 的字节范围与时长
+node --test --test-isolation=none "tests/**/*.test.mjs"
 ```
 
-两个脚本都会：
+## 联网回归（`tests/integration/`）
 
-- 用假 `ctx`（只实现 `effect` / `tools.register` / `webServer.register`）挂载插件
-- 起一个临时 HTTP 服务转发 `/bili-music/*` 请求
-- 真实访问 B 站接口与本地缓存
+真实访问 B 站与本地缓存，跑之前需要有登录态与画像：
 
-## 前置
-
-- `.tmp/bili-music/cookies.json` 里要有有效登录态（`node tools/bili-music/bili-music.js login`）
-- `data/bili-music-profile-*.json` 里要有画像（`node tools/bili-music/bili-music.js profile`）
-
-## 注意
-
-- 会写 `data/` 与 `.tmp/` 下的缓存，不会改 B 站账号数据（除 `like` 写入代理收藏夹）
-- `run-online.js` 会把画像全部曲目塞进「已播放」，用来模拟池子耗尽
+```sh
+node tests/integration/run-range.js
+node tests/integration/run-manifest.js
+node tests/integration/run-queue.js
+node tests/integration/run-online.js
+node tests/integration/run-search.js
+node tests/integration/sim-picks.js
+```

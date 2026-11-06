@@ -43,7 +43,7 @@ export function parseDurationSec(duration) {
   return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
 }
 
-export function createRecommendation({ store, state, searchMusic, relatedCandidates }) {
+export function createRecommendation({ store, state, searchMusic, related }) {
   /**
    * 有效画像 = 静态画像文件 + 实时反馈合并。
    * like 抬分并入池，dislike 剔除；这样不用重跑采集工具，反馈也一定生效。
@@ -228,9 +228,11 @@ export function createRecommendation({ store, state, searchMusic, relatedCandida
 
     if (recent.length && Math.random() < 0.5) {
       const seed = recent[Math.floor(Math.random() * Math.min(recent.length, 60))];
-      const related = await relatedCandidates(seed, strictBlock);
-      if (related.length) {
-        const pick = related[Math.floor(Math.random() * Math.min(related.length, 4))];
+      // 相关推荐给的是传输层形状，能不能用是领域规则，过滤留在这里
+      const candidates = await related(seed).catch(() => []);
+      const usable = candidates.filter((candidate) => usableCandidate(candidate, strictBlock));
+      if (usable.length) {
+        const pick = usable[Math.floor(Math.random() * Math.min(usable.length, 4))];
         return { ...pick, source: 'online', keyword: '相关推荐' };
       }
     }
@@ -275,6 +277,5 @@ export function createRecommendation({ store, state, searchMusic, relatedCandida
     pickNext,
     usableCandidate,
     parseDurationSec,
-    relatedCandidates,
   };
 }

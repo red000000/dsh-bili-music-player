@@ -1,0 +1,112 @@
+/**
+ * 自定义 hook 工厂：client 侧不能 import react，统一从宿主注入的 React 上取。
+ * 由 createBar 调用一次，返回稳定的 hook 引用。
+ */
+import { MODE_KEY } from './theme.js';
+
+export function createHooks(React) {
+  const { useCallback, useEffect, useRef, useState } = React;
+  const NOTICE_TTL_MS = 2400;
+
+  /**
+   * 轮询后端状态：当前曲目与播放历史。
+   * 并发保护：上一次请求没回来就跳过，避免慢请求叠加把新状态覆盖成旧的。
+   * 同时暴露 setState，供反馈成功后做乐观更新。
+   */
+  function useServerState() {
+    const [state, setState] = useState({ current: null, history: [] });
+    const refreshing = useRef(false);
+    const mounted = useRef(false);
+
+    const refresh = useCallback(async () => {
+      if (refreshing.current) return;
+      refreshing.current = true;
+      try {
+        const res = await fetch('/bili-music/state', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!mounted.current) return;
+        setState({ current: data.current || null, history: data.history || [] });
+      } catch {
+        /* 网络抖动忽略，下次轮询会补上 */
+      } finally {
+        refreshing.current = false;
+      }
+    }, []);
+
+    useEffect(() => {
+      mounted.current = true;
+      refresh();
+      const timer = setInterval(refresh, 5000);
+      return () => {
+        mounted.current = false;
+        clearInterval(timer);
+      };
+    }, [refresh]);
+
+    return { state, refresh, setState };
+  }
+
+  /** 浮层提示：优先从鼠标点击处冒出，没有坐标时退回播放条上方。 */
+  function useNotice(anchorRef) {
+    const [notice, setNotice] = useState(null);
+    const timer = useRef(null);
+    const mounted = useRef(true);
+
+    const show = useCallback(
+      (text, tone = 'ok', ev) => {
+        let x;
+        let y;
+        if (ev && Number.isFinite(ev.clientX)) {
+          x = ev.clientX;
+          y = ev.clientY;
+        } else if (anchorRef?.current) {
+          const rect = anchorRef.current.getBoundingClientRect();
+          x = rect.left + rect.width / 2;
+          y = rect.top;
+        }
+        setNotice({ text, tone, x, y });
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => {
+          if (mounted.current) setNotice(null);
+        }, NOTICE_TTL_MS);
+      },
+      [anchorRef],
+    );
+
+    useEffect(() => {
+      mounted.current = true;
+      return () => {
+        mounted.current = false;
+        if (timer.current) clearTimeout(timer.current);
+      };
+    }, []);
+
+    return { notice, show };
+  }
+
+  /**
+   * 播放模式（推荐连播 / 单曲循环）：写进 localStorage，刷新后保持。
+   */
+  function useMode() {
+    const [mode, setMode] = useState(() => {
+      try {
+        return localStorage.getItem(MODE_KEY) || 'recommend';
+      } catch {
+        return 'recommend';
+      }
+    });
+
+    useEffect(() => {
+      try {
+        localStorage.setItem(MODE_KEY, mode);
+      } catch {
+        /* 忽略 */
+      }
+    }, [mode]);
+
+    return [mode, setMode];
+  }
+
+  return { useServerState, useNotice, useMode };
+}

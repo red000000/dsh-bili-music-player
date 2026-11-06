@@ -44,6 +44,10 @@ export function createStore({
   };
 
   const state = readJson(stateFile, { current: null, playedAt: null });
+  // 手改或旧版本写坏的 state.json 不能让运行时到处判空：在边界处把列表补成数组
+  for (const key of ['history', 'queue', 'recent']) {
+    if (!Array.isArray(state[key])) state[key] = [];
+  }
   const saveState = () => writeJson(stateFile, state);
 
   const readFeedbackState = () => readJson(feedbackStateFile, {});
@@ -70,7 +74,12 @@ export function createStore({
     const rows = readFeedbackLog();
     if (rows.length) {
       const map = {};
-      for (const row of rows) if (row && row.bvid) map[row.bvid] = row;
+      for (const row of rows) {
+        if (!row || !row.bvid) continue;
+        // clear 是一条「取消标记」的流水，迁移时要把它前面的反馈删掉
+        if (row.action === 'clear') delete map[row.bvid];
+        else map[row.bvid] = row;
+      }
       writeFeedbackState(map);
       console.log(
         `[bili-music] migrated ${rows.length} feedback rows -> ${Object.keys(map).length} track states`,

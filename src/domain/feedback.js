@@ -51,13 +51,65 @@ export function createFeedback({
     };
   }
 
+  /** 取消标记：删掉这首歌的反馈记录，审计流水留一条 clear。 */
+  function clear(bvid) {
+    const map = store.readFeedbackState();
+    const prev = map[bvid]?.action || null;
+    if (!prev) {
+      return {
+        action: null,
+        prev: null,
+        changed: false,
+        track: { ...trackMeta(bvid), feedback: null },
+      };
+    }
+    const meta = map[bvid];
+    delete map[bvid];
+    store.writeFeedbackState(map);
+    store.appendFeedbackLog({
+      at: new Date().toISOString(),
+      bvid,
+      title: meta.title,
+      artist: meta.artist,
+      action: 'clear',
+      prev,
+    });
+    return {
+      action: null,
+      prev,
+      changed: true,
+      track: { ...trackMeta(bvid), feedback: null },
+      stats: { total: Object.keys(map).length, unique: Object.keys(map).length },
+    };
+  }
+
   /**
    * 唯一反馈入口：HTTP 按钮与 agent 工具都走这里。
-   * like 会写进代理收藏夹；从 like 改成别的会把它撤出收藏夹。
+   * like 会写进代理收藏夹；从 like 改成别的、或取消标记，会把它撤出收藏夹。
+   * action 传 clear 表示取消标记。
    */
   async function submit(action, reason = '', targetBvid = '') {
     const bvid = targetBvid || state.current?.bvid;
     if (!bvid) throw new Error('没有可反馈的曲目');
+    if (action === 'clear') {
+      const prev = feedbackOf(bvid);
+      if (!prev) {
+        return {
+          action: null,
+          prev: null,
+          changed: false,
+          track: { ...trackMeta(bvid), feedback: null },
+          saved: null,
+        };
+      }
+      let saved = null;
+      try {
+        if (prev === 'like') saved = await removeFromAgentFolder(bvid);
+      } catch (error) {
+        saved = { error: String(error.message || error) };
+      }
+      return { ...clear(bvid), saved };
+    }
     assertAction(action);
     const prev = feedbackOf(bvid);
     if (prev === action) {
@@ -74,7 +126,7 @@ export function createFeedback({
     let saved = null;
     try {
       if (action === 'like') saved = await addToAgentFolder(bvid);
-      else if (prev === 'like') saved = { removed: await removeFromAgentFolder(bvid) };
+      else if (prev === 'like') saved = await removeFromAgentFolder(bvid);
     } catch (error) {
       saved = { error: String(error.message || error) };
     }

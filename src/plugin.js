@@ -15,6 +15,7 @@ import { createManifestReader } from './adapters/manifest.js';
 import { createStore } from './adapters/state-store.js';
 import { UA, createBilibili } from './adapters/bilibili.js';
 import { createAudioCache } from './adapters/audio-cache.js';
+import { createAgentFolder } from './adapters/agent-folder.js';
 import { createPlayback } from './domain/playback.js';
 import { registerRoutes } from './surface/routes.js';
 import { registerTools } from './surface/tools.js';
@@ -42,19 +43,13 @@ export function apply(ctx, config = {}) {
 
   // ---------- B 站请求 ----------
   // 传输细节在 adapters/bilibili.js；这里只保留共享实例。
-  const {
-    bili,
-    searchMusic,
-    videoInfo,
-    audioStream,
-    related: relatedRaw,
-  } = createBilibili({ cookieHeader });
+  const { bili, searchMusic, videoInfo, audioStream, related } = createBilibili({ cookieHeader });
 
   // ---------- 本地音频缓存 ----------
   // 下载与 LRU 在 adapters/audio-cache.js；这里注入缓存目录与取流方式。
   const audioCache = createAudioCache({
     dir: path.join(base, 'cache'),
-    resolveStream: (b, c, opts) => audioStream(b, c, opts || {}),
+    resolveStream: audioStream,
     userAgent: UA,
   });
   const audioCacheDir = audioCache.dir;
@@ -64,99 +59,32 @@ export function apply(ctx, config = {}) {
   // 解析在 adapters/manifest.js；这里只负责装配缓存目录与取流方式。
   const manifestReader = createManifestReader({
     cacheDir: audioCacheDir,
-    resolveStream: (b, c) => audioStream(b, c),
+    resolveStream: audioStream,
     userAgent: UA,
   });
 
   // ---------- 代理专属收藏夹（唯一可写目标） ----------
-  const folderTitle = config.agentFolderTitle || DEFAULT_FOLDER_TITLE;
-
-  async function agentFolder() {
-    const cached = readJson(folderFile, null);
-    if (cached?.id && cached.title === folderTitle) return cached;
-    const jar = cookies();
-    const mid = jar.DedeUserID;
-    if (!mid) throw new Error('未登录：先配置 cookie');
-    const list = await bili('/x/v3/fav/folder/created/list-all', { params: { up_mid: mid } });
-    const found = (list.json?.data?.list || []).find((f) => f.title === folderTitle);
-    if (found) {
-      const rec = { id: found.id, title: found.title };
-      writeJson(folderFile, rec);
-      return rec;
-    }
-    const created = await bili('/x/v3/fav/folder/add', {
-      method: 'POST',
-      body: new URLSearchParams({
-        title: folderTitle,
-        privacy: '1',
-        csrf: jar.bili_jct || '',
-      }).toString(),
-    });
-    if (created.json?.code !== 0) throw new Error(`创建收藏夹失败: ${created.json?.message}`);
-    const rec = { id: created.json.data.id, title: folderTitle };
-    writeJson(folderFile, rec);
-    return rec;
-  }
-
-  async function addToAgentFolder(bvid) {
-    const folder = await agentFolder();
-    const info = await videoInfo(bvid);
-    const jar = cookies();
-    const r = await bili('/x/v3/fav/resource/deal', {
-      method: 'POST',
-      body: new URLSearchParams({
-        rid: String(info.aid),
-        type: '2',
-        add_media_ids: String(folder.id),
-        del_media_ids: '',
-        csrf: jar.bili_jct || '',
-      }).toString(),
-    });
-    if (r.json?.code !== 0) throw new Error(`收藏失败: ${r.json?.message}`);
-    return { folder: folder.title, folderId: folder.id };
-  }
-
-  async function removeFromAgentFolder(bvid) {
-    const folder = await agentFolder();
-    const info = await videoInfo(bvid);
-    const jar = cookies();
-    const r = await bili('/x/v3/fav/resource/deal', {
-      method: 'POST',
-      body: new URLSearchParams({
-        rid: String(info.aid),
-        type: '2',
-        add_media_ids: '',
-        del_media_ids: String(folder.id),
-        csrf: jar.bili_jct || '',
-      }).toString(),
-    });
-    if (r.json?.code !== 0) throw new Error(`取消收藏失败: ${r.json?.message}`);
-    return { folder: folder.title, folderId: folder.id };
-  }
+  // 远端交互在 adapters/agent-folder.js；这里只注入依赖。
+  const agentFolder = createAgentFolder({
+    bili,
+    cookies,
+    videoInfo,
+    readJson,
+    writeJson,
+    folderFile,
+    title: config.agentFolderTitle || DEFAULT_FOLDER_TITLE,
+  });
 
   // ---------- 推荐 ----------
   // 规则在 domain/recommendation.js；这里注入状态、搜索与相关推荐。
-  const relatedCandidates = async (seedBvid, blocked) => {
-    try {
-      const list = await relatedRaw(seedBvid);
-      return list.filter((item) => recommendation.usableCandidate(item, blocked));
-    } catch {
-      return [];
-    }
-  };
   const recommendation = createRecommendation({
     store,
     state,
     searchMusic,
-    relatedCandidates,
+    related,
   });
   const { profileSummary, feedbackStats, feedbackOf, pickNext } = recommendation;
 
-  /**
-   * 播放一首歌。
-   * - 默认：写入历史头部（cursor=0）
-   * - fromHistory：只在历史里移动光标，不改写历史顺序
-   */
   // ---------- 播放与反馈 ----------
   // 规则分别在 domain/playback.js 与 domain/feedback.js；这里把依赖接起来。
   const playback = createPlayback({
@@ -177,8 +105,8 @@ export function apply(ctx, config = {}) {
     saveState,
     trackMeta: playback.trackMeta,
     feedbackOf,
-    addToAgentFolder,
-    removeFromAgentFolder,
+    addToAgentFolder: agentFolder.add,
+    removeFromAgentFolder: agentFolder.remove,
   });
   const { playBvid, playByQuery, playNext, playPrev } = playback;
   const { submit: submitFeedback } = feedback;

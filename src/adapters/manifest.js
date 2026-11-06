@@ -30,7 +30,10 @@ export function parseManifest(buf, bvid = '') {
   if (!moov || !sidx) return null;
 
   const s = sidx.start;
+  // sidx 的固定字段：8 字节头 + 版本与标志 + 参考号 + timescale + 两个时间字段 + 保留 + 计数
+  if (sidx.size < 32) return null;
   const version = buf[s + 8];
+  if (version !== 0 && sidx.size < 40) return null;
   const timescale = buf.readUInt32BE(s + 16);
   let o = s + 20;
   const earliest = version === 0 ? buf.readUInt32BE(o) : Number(buf.readBigUInt64BE(o));
@@ -40,6 +43,8 @@ export function parseManifest(buf, bvid = '') {
   o += 2; // reserved
   const count = buf.readUInt16BE(o);
   o += 2;
+  // 记录区必须完整落在 sidx 盒子里：裁剪过的头部或损坏的 count 直接判为不可用
+  if (o + count * 12 > s + sidx.size) return null;
 
   const segments = [];
   let pos = s + sidx.size + firstOffset;
