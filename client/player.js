@@ -157,5 +157,5 @@ export function createPlayer({ diag, onState, onError, onEnded, element }) {
     el.removeEventListener('error', onErrorEvent);
   }
 
-  return { el, toggle, seekTo, seekRatio, setVolume, destroy };
+  return { el, snapshot, toggle, seekTo, seekRatio, setVolume, destroy };
 }

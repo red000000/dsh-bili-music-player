@@ -33,44 +33,6 @@
     return element;
   }
 
-  // client/bar-boundary.js
-  function createBarBoundary({ React, diag: diag2 }) {
-    const h = React.createElement;
-    return class BarBoundary extends React.Component {
-      constructor(props) {
-        super(props);
-        this.state = { err: null };
-      }
-      static getDerivedStateFromError(err) {
-        return { err };
-      }
-      componentDidCatch(err) {
-        diag2("bar-crash", { err: String(err && err.message) });
-      }
-      render() {
-        if (this.state.err) {
-          return h(
-            "div",
-            {
-              style: {
-                flex: "0 0 100%",
-                width: "100%",
-                padding: "4px 8px",
-                margin: "4px 0",
-                font: "12px/1.5 system-ui, sans-serif",
-                color: "var(--dsw-alias-state-error-primary, #c62828)",
-                border: "1px solid var(--dsw-alias-state-error-primary, #c62828)",
-                borderRadius: 8
-              }
-            },
-            `\u64AD\u653E\u6761\u51FA\u9519\uFF1A${this.state.err.message}\uFF08\u53F3\u952E\u65F6\u95F4\u4F4D\u7F6E\u53EF\u53CD\u9988\u7ED9\u5F00\u53D1\u8005\uFF09`
-          );
-        }
-        return this.props.children;
-      }
-    };
-  }
-
   // client/loader.js
   function createLoader({ el, diag: diag2, onLoading, onProgress, onPlaying, onError }) {
     let currentKey = "";
@@ -477,7 +439,83 @@
       el.removeEventListener("ended", onEndedEvent);
       el.removeEventListener("error", onErrorEvent);
     }
-    return { el, toggle, seekTo, seekRatio, setVolume, destroy };
+    return { el, snapshot, toggle, seekTo, seekRatio, setVolume, destroy };
+  }
+
+  // client/audio-engine.js
+  var engine = null;
+  function getAudioEngine() {
+    if (engine) return engine;
+    const el = getAudio();
+    const handlers = /* @__PURE__ */ new Set();
+    const emit = (name, value) => {
+      for (const handler of handlers) handler(name, value);
+    };
+    const player = createPlayer({
+      element: el,
+      diag,
+      onState: (snapshot) => emit("state", snapshot),
+      onError: (message) => emit("error", message),
+      onEnded: () => emit("ended")
+    });
+    const loader = createLoader({
+      el,
+      diag,
+      onLoading: (value) => emit("loading", value),
+      onProgress: (value) => emit("progress", value),
+      onPlaying: (value) => emit("playing", value),
+      onError: (message) => emit("error", message)
+    });
+    engine = {
+      player,
+      loader,
+      /** 订阅状态事件，返回退订函数。 */
+      subscribe(handler) {
+        handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+      /** 当前播放快照：重新挂载时用来立刻对齐界面。 */
+      snapshot: () => player.snapshot()
+    };
+    return engine;
+  }
+
+  // client/bar-boundary.js
+  function createBarBoundary({ React, diag: diag2 }) {
+    const h = React.createElement;
+    return class BarBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { err: null };
+      }
+      static getDerivedStateFromError(err) {
+        return { err };
+      }
+      componentDidCatch(err) {
+        diag2("bar-crash", { err: String(err && err.message) });
+      }
+      render() {
+        if (this.state.err) {
+          return h(
+            "div",
+            {
+              style: {
+                flex: "0 0 100%",
+                width: "100%",
+                padding: "4px 8px",
+                margin: "4px 0",
+                font: "12px/1.5 system-ui, sans-serif",
+                color: "var(--dsw-alias-state-error-primary, #c62828)",
+                border: "1px solid var(--dsw-alias-state-error-primary, #c62828)",
+                borderRadius: 8
+              }
+            },
+            `\u64AD\u653E\u6761\u51FA\u9519\uFF1A${this.state.err.message}\uFF08\u53F3\u952E\u65F6\u95F4\u4F4D\u7F6E\u53EF\u53CD\u9988\u7ED9\u5F00\u53D1\u8005\uFF09`
+          );
+        }
+        return this.props.children;
+      }
+    };
   }
 
   // client/theme.js
@@ -984,8 +1022,7 @@
       const goNextRef = useRef(null);
       const barRef = useRef(null);
       const switchingRef = useRef(false);
-      const loaderRef = useRef(null);
-      const playerRef = useRef(null);
+      const engineRef = useRef(null);
       const volRef = useRef(0.5);
       const modeRef = useRef("recommend");
       const pendingRef = useRef(false);
@@ -1000,7 +1037,7 @@
       }, [debugOn]);
       useEffect(() => {
         volRef.current = vol;
-        if (playerRef.current) playerRef.current.setVolume(vol);
+        if (engineRef.current) engineRef.current.player.setVolume(vol);
         try {
           localStorage.setItem("bili-music-volume", String(vol));
         } catch {
@@ -1012,54 +1049,49 @@
       const current = state.current;
       const active = current && current.feedback || null;
       useEffect(() => {
-        if (!playerRef.current) {
-          playerRef.current = createPlayer({
-            diag,
-            onState: (snapshot) => {
-              setPlaying(snapshot.playing);
-              setNow(snapshot.now);
-              setDur(snapshot.dur);
-            },
-            onError: (message) => setError(message),
-            onEnded: () => {
-              if (modeRef.current === "loop") {
-                const player = playerRef.current;
-                player.el.currentTime = 0;
-                player.el.play().then(() => setPlaying(true)).catch(() => setError("\u5FAA\u73AF\u64AD\u653E\u88AB\u6D4F\u89C8\u5668\u62E6\u622A\uFF0C\u70B9 \u25B6 \u7EE7\u7EED"));
-                return;
-              }
-              goNextRef.current?.();
+        const engine2 = getAudioEngine();
+        engineRef.current = engine2;
+        engine2.player.setVolume(volRef.current);
+        const off = engine2.subscribe((name, value) => {
+          if (name === "state") {
+            setPlaying(value.playing);
+            setNow(value.now);
+            setDur(value.dur);
+          } else if (name === "playing") setPlaying(value);
+          else if (name === "loading") setLoading(value);
+          else if (name === "progress") setLoadPct(value);
+          else if (name === "error") setError(value);
+          else if (name === "ended") {
+            if (modeRef.current === "loop") {
+              const { player } = engine2;
+              player.el.currentTime = 0;
+              player.el.play().then(() => setPlaying(true)).catch(() => setError("\u5FAA\u73AF\u64AD\u653E\u88AB\u6D4F\u89C8\u5668\u62E6\u622A\uFF0C\u70B9 \u25B6 \u7EE7\u7EED"));
+              return;
             }
-          });
-          loaderRef.current = createLoader({
-            el: playerRef.current.el,
-            diag,
-            onLoading: setLoading,
-            onProgress: setLoadPct,
-            onPlaying: setPlaying,
-            onError: setError
-          });
-        }
-        playerRef.current.setVolume(volRef.current);
+            goNextRef.current?.();
+          }
+        });
+        const snapshot = engine2.snapshot();
+        setPlaying(snapshot.playing);
+        setNow(snapshot.now);
+        setDur(snapshot.dur);
         return () => {
-          loaderRef.current?.destroy();
-          loaderRef.current = null;
-          playerRef.current?.destroy();
-          playerRef.current = null;
+          off();
+          engineRef.current = null;
         };
       }, []);
       const loadAndMaybePlay = useCallback((track) => {
-        const loader = loaderRef.current;
-        if (!loader) return;
+        const engine2 = engineRef.current;
+        if (!engine2) return;
         const key = `${track.bvid}|${track.startedAt || ""}`;
-        if (loader.key === key) return;
+        if (engine2.loader.key === key) return;
         const streamUrl = `${track.stream}?t=${encodeURIComponent(track.startedAt || "")}`;
         setNow(0);
         setDur(0);
         const shouldPlay = autoNextRef.current;
         autoNextRef.current = false;
         setPlaying(false);
-        loader.load({ track, key, shouldPlay, streamUrl });
+        engine2.loader.load({ track, key, shouldPlay, streamUrl });
       }, []);
       useEffect(() => {
         if (!current) return;
@@ -1068,13 +1100,15 @@
       const toggle = useCallback(async () => {
         if (!current) return;
         setError("");
-        if (loaderRef.current?.failed || playerRef.current?.el.error) {
-          loaderRef.current?.reset();
+        const engine2 = engineRef.current;
+        if (!engine2) return;
+        if (engine2.loader.failed || engine2.player.el.error) {
+          engine2.loader.reset();
           loadAndMaybePlay(current);
           return;
         }
         try {
-          await playerRef.current.toggle();
+          await engine2.player.toggle();
         } catch (e) {
           if (e && e.name === "NotAllowedError") setError("\u6D4F\u89C8\u5668\u62E6\u622A\u4E86\u81EA\u52A8\u64AD\u653E\uFF0C\u70B9\u4E00\u4E0B\u9875\u9762\u518D\u6309 \u25B6");
           else setError(`\u64AD\u653E\u5931\u8D25\uFF1A${e && e.message || e}`);
@@ -1124,7 +1158,7 @@
           if (!rect.width) return;
           const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
           diag("click", { ratio: +ratio.toFixed(3), biliDur: current && current.duration });
-          playerRef.current?.seekRatio(ratio, current && current.duration);
+          engineRef.current?.player.seekRatio(ratio, current && current.duration);
         },
         [current]
       );

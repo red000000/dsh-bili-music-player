@@ -12,7 +12,7 @@ profile: product
 |---|---|
 | `index.js` | host 入口：薄导出 `src/plugin.js` |
 | `src/` | host 源码：工具注册、`/bili-music/stream` 音频代理 |
-| `client/` | client 源码：`bar.js` 编排，`player.js`/`loader.js` 外部系统，`parts/` 展示零件 |
+| `client/` | client 源码：`bar.js` 编排，`audio-engine.js` 模块级单例，`player.js`/`loader.js` 外部系统，`parts/` 展示零件 |
 | `client.js` | client 构建产物（由 bundler 生成，不手改） |
 | `cordis.patch.yml` | bundle 声明 |
 | `locale/` | 中英文案 |

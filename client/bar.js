@@ -7,9 +7,8 @@
  */
 import { diag, setDiagEnabled } from './diag.js';
 import { getAudio } from './audio.js';
+import { getAudioEngine } from './audio-engine.js';
 import { createBarBoundary } from './bar-boundary.js';
-import { createLoader } from './loader.js';
-import { createPlayer } from './player.js';
 import { createHooks } from './hooks.js';
 import { createButtons } from './parts/buttons.js';
 import { createFeedbackArea } from './parts/feedback.js';
@@ -61,8 +60,7 @@ export function createBar(React) {
     const goNextRef = useRef(null);
     const barRef = useRef(null);
     const switchingRef = useRef(false);
-    const loaderRef = useRef(null);
-    const playerRef = useRef(null);
+    const engineRef = useRef(null);
     const volRef = useRef(0.5);
     const modeRef = useRef('recommend');
     const pendingRef = useRef(false);
@@ -81,7 +79,7 @@ export function createBar(React) {
 
     useEffect(() => {
       volRef.current = vol;
-      if (playerRef.current) playerRef.current.setVolume(vol);
+      if (engineRef.current) engineRef.current.player.setVolume(vol);
       try {
         localStorage.setItem('bili-music-volume', String(vol));
       } catch {
@@ -96,61 +94,57 @@ export function createBar(React) {
     const current = state.current;
     const active = (current && current.feedback) || null;
 
-    // 音频外部系统：监听、时长解析与 seek 在 player.js，资源加载在 loader.js；
-    // 这里只订阅状态，不关心 MSE、取消与看门狗的时序。
+    // 模块级音频引擎：播放器与加载器只建一次。会话切换会卸载本组件，
+    // 但引擎不销毁，音乐继续播；这里只订阅状态，重新挂载时先对齐一次快照。
     useEffect(() => {
-      if (!playerRef.current) {
-        playerRef.current = createPlayer({
-          diag,
-          onState: (snapshot) => {
-            setPlaying(snapshot.playing);
-            setNow(snapshot.now);
-            setDur(snapshot.dur);
-          },
-          onError: (message) => setError(message),
-          onEnded: () => {
-            if (modeRef.current === 'loop') {
-              const player = playerRef.current;
-              player.el.currentTime = 0;
-              player.el
-                .play()
-                .then(() => setPlaying(true))
-                .catch(() => setError('循环播放被浏览器拦截，点 ▶ 继续'));
-              return;
-            }
-            goNextRef.current?.();
-          },
-        });
-        loaderRef.current = createLoader({
-          el: playerRef.current.el,
-          diag,
-          onLoading: setLoading,
-          onProgress: setLoadPct,
-          onPlaying: setPlaying,
-          onError: setError,
-        });
-      }
-      playerRef.current.setVolume(volRef.current);
+      const engine = getAudioEngine();
+      engineRef.current = engine;
+      engine.player.setVolume(volRef.current);
+      const off = engine.subscribe((name, value) => {
+        if (name === 'state') {
+          setPlaying(value.playing);
+          setNow(value.now);
+          setDur(value.dur);
+        } else if (name === 'playing') setPlaying(value);
+        else if (name === 'loading') setLoading(value);
+        else if (name === 'progress') setLoadPct(value);
+        else if (name === 'error') setError(value);
+        else if (name === 'ended') {
+          if (modeRef.current === 'loop') {
+            const { player } = engine;
+            player.el.currentTime = 0;
+            player.el
+              .play()
+              .then(() => setPlaying(true))
+              .catch(() => setError('循环播放被浏览器拦截，点 ▶ 继续'));
+            return;
+          }
+          goNextRef.current?.();
+        }
+      });
+      // 切回会话时界面从 0:00 开始不对，先取一次真实进度
+      const snapshot = engine.snapshot();
+      setPlaying(snapshot.playing);
+      setNow(snapshot.now);
+      setDur(snapshot.dur);
       return () => {
-        loaderRef.current?.destroy();
-        loaderRef.current = null;
-        playerRef.current?.destroy();
-        playerRef.current = null;
+        off();
+        engineRef.current = null;
       };
     }, []);
 
     const loadAndMaybePlay = useCallback((track) => {
-      const loader = loaderRef.current;
-      if (!loader) return;
+      const engine = engineRef.current;
+      if (!engine) return;
       const key = `${track.bvid}|${track.startedAt || ''}`;
-      if (loader.key === key) return;
+      if (engine.loader.key === key) return;
       const streamUrl = `${track.stream}?t=${encodeURIComponent(track.startedAt || '')}`;
       setNow(0);
       setDur(0);
       const shouldPlay = autoNextRef.current;
       autoNextRef.current = false;
       setPlaying(false);
-      loader.load({ track, key, shouldPlay, streamUrl });
+      engine.loader.load({ track, key, shouldPlay, streamUrl });
     }, []);
 
     useEffect(() => {
@@ -161,14 +155,16 @@ export function createBar(React) {
     const toggle = useCallback(async () => {
       if (!current) return;
       setError('');
+      const engine = engineRef.current;
+      if (!engine) return;
       // 上次加载失败（或元素进入 error）：重新走一遍完整加载，而不是退回流式
-      if (loaderRef.current?.failed || playerRef.current?.el.error) {
-        loaderRef.current?.reset();
+      if (engine.loader.failed || engine.player.el.error) {
+        engine.loader.reset();
         loadAndMaybePlay(current);
         return;
       }
       try {
-        await playerRef.current.toggle();
+        await engine.player.toggle();
       } catch (e) {
         if (e && e.name === 'NotAllowedError') setError('浏览器拦截了自动播放，点一下页面再按 ▶');
         else setError(`播放失败：${(e && e.message) || e}`);
@@ -223,7 +219,7 @@ export function createBar(React) {
         if (!rect.width) return;
         const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
         diag('click', { ratio: +ratio.toFixed(3), biliDur: current && current.duration });
-        playerRef.current?.seekRatio(ratio, current && current.duration);
+        engineRef.current?.player.seekRatio(ratio, current && current.duration);
       },
       [current],
     );
