@@ -15,6 +15,7 @@ import { createFeedbackArea } from './parts/feedback.js';
 import { createHistoryPanel } from './parts/history.js';
 import { createErrorToast, createNoticePart } from './parts/notice.js';
 import { createProgressPart } from './parts/progress.js';
+import { updatePlayback } from './playback-store.js';
 import { ACTIONS, COLORS as C, ensureDockStyle } from './theme.js';
 
 export function createBar(React) {
@@ -30,11 +31,7 @@ export function createBar(React) {
   const BarBoundary = createBarBoundary({ React, diag });
 
   function Bar() {
-    const [playing, setPlaying] = useState(false);
-    const [now, setNow] = useState(0);
-    const [dur, setDur] = useState(0);
     const [pending, setPending] = useState(null);
-    const [error, setError] = useState('');
     const [mode, setMode] = hooks.useMode();
     const [showHistory, setShowHistory] = useState(false);
     const [debugOn, setDebugOn] = useState(() => {
@@ -52,8 +49,6 @@ export function createBar(React) {
         return 0.8;
       }
     });
-    const [loading, setLoading] = useState(false);
-    const [loadPct, setLoadPct] = useState(0);
     const [switching, setSwitching] = useState(false);
 
     const autoNextRef = useRef(false);
@@ -65,9 +60,11 @@ export function createBar(React) {
     const modeRef = useRef('recommend');
     const pendingRef = useRef(false);
 
-    const { useServerState, useNotice } = hooks;
+    const { useServerState, useNotice, usePlayback } = hooks;
     const { state, refresh, setState } = useServerState();
     const { notice, show: showNotice } = useNotice(barRef);
+    // 播放状态来自模块级 store：切会话重建组件后进度、加载与错误都还在
+    const { playing, now, dur, loading, loadPct, error } = usePlayback();
 
     useEffect(() => {
       modeRef.current = mode;
@@ -95,38 +92,23 @@ export function createBar(React) {
     const active = (current && current.feedback) || null;
 
     // 模块级音频引擎：播放器与加载器只建一次。会话切换会卸载本组件，
-    // 但引擎不销毁，音乐继续播；这里只订阅状态，重新挂载时先对齐一次快照。
+    // 但引擎与 playback-store 都不销毁，音乐继续播；这里只订阅「播完」。
     useEffect(() => {
       const engine = getAudioEngine();
       engineRef.current = engine;
       engine.player.setVolume(volRef.current);
-      const off = engine.subscribe((name, value) => {
-        if (name === 'state') {
-          setPlaying(value.playing);
-          setNow(value.now);
-          setDur(value.dur);
-        } else if (name === 'playing') setPlaying(value);
-        else if (name === 'loading') setLoading(value);
-        else if (name === 'progress') setLoadPct(value);
-        else if (name === 'error') setError(value);
-        else if (name === 'ended') {
-          if (modeRef.current === 'loop') {
-            const { player } = engine;
-            player.el.currentTime = 0;
-            player.el
-              .play()
-              .then(() => setPlaying(true))
-              .catch(() => setError('循环播放被浏览器拦截，点 ▶ 继续'));
-            return;
-          }
-          goNextRef.current?.();
+      const off = engine.subscribeEnded(() => {
+        if (modeRef.current === 'loop') {
+          const { player } = engine;
+          player.el.currentTime = 0;
+          player.el
+            .play()
+            .then(() => updatePlayback({ playing: true }))
+            .catch(() => updatePlayback({ error: '循环播放被浏览器拦截，点 ▶ 继续' }));
+          return;
         }
+        goNextRef.current?.();
       });
-      // 切回会话时界面从 0:00 开始不对，先取一次真实进度
-      const snapshot = engine.snapshot();
-      setPlaying(snapshot.playing);
-      setNow(snapshot.now);
-      setDur(snapshot.dur);
       return () => {
         off();
         engineRef.current = null;
@@ -139,11 +121,9 @@ export function createBar(React) {
       const key = `${track.bvid}|${track.startedAt || ''}`;
       if (engine.loader.key === key) return;
       const streamUrl = `${track.stream}?t=${encodeURIComponent(track.startedAt || '')}`;
-      setNow(0);
-      setDur(0);
+      updatePlayback({ now: 0, dur: 0, playing: false });
       const shouldPlay = autoNextRef.current;
       autoNextRef.current = false;
-      setPlaying(false);
       engine.loader.load({ track, key, shouldPlay, streamUrl });
     }, []);
 
@@ -154,7 +134,7 @@ export function createBar(React) {
 
     const toggle = useCallback(async () => {
       if (!current) return;
-      setError('');
+      updatePlayback({ error: '' });
       const engine = engineRef.current;
       if (!engine) return;
       // 上次加载失败（或元素进入 error）：重新走一遍完整加载，而不是退回流式
@@ -166,9 +146,9 @@ export function createBar(React) {
       try {
         await engine.player.toggle();
       } catch (e) {
-        if (e && e.name === 'NotAllowedError') setError('浏览器拦截了自动播放，点一下页面再按 ▶');
-        else setError(`播放失败：${(e && e.message) || e}`);
-        setPlaying(false);
+        if (e && e.name === 'NotAllowedError')
+          updatePlayback({ error: '浏览器拦截了自动播放，点一下页面再按 ▶', playing: false });
+        else updatePlayback({ error: `播放失败：${(e && e.message) || e}`, playing: false });
       }
     }, [current, loadAndMaybePlay]);
 
@@ -199,7 +179,9 @@ export function createBar(React) {
           await refresh();
         } catch (e) {
           autoNextRef.current = false;
-          setError(`${dir === 'next' ? '下一首' : '上一首'}失败：${e.message || e}`);
+          updatePlayback({
+            error: `${dir === 'next' ? '下一首' : '上一首'}失败：${e.message || e}`,
+          });
         } finally {
           switchingRef.current = false;
           setSwitching(false);

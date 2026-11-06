@@ -122,11 +122,3 @@ test('setVolume 夹在 0 到 1 之间', () => {
   player.setVolume(-1);
   assert.equal(audio.volume, 0);
 });
-
-test('destroy 移除全部监听', () => {
-  const player = setup();
-  player.destroy();
-  for (const [type, list] of audio.listeners) {
-    assert.equal(list.length, 0, `${type} 监听没有清掉`);
-  }
-});

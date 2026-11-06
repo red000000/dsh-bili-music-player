@@ -2,6 +2,7 @@
  * 自定义 hook 工厂：client 侧不能 import react，统一从宿主注入的 React 上取。
  * 由 createBar 调用一次，返回稳定的 hook 引用。
  */
+import { getPlaybackState, subscribePlayback } from './playback-store.js';
 import { MODE_KEY } from './theme.js';
 
 export function createHooks(React) {
@@ -108,5 +109,14 @@ export function createHooks(React) {
     return [mode, setMode];
   }
 
-  return { useServerState, useNotice, useMode };
+  /**
+   * 订阅模块级播放状态：切会话重建组件后仍是同一份数据。
+   */
+  function usePlayback() {
+    const [, bump] = useState(0);
+    useEffect(() => subscribePlayback(() => bump((value) => value + 1)), []);
+    return getPlaybackState();
+  }
+
+  return { useServerState, useNotice, useMode, usePlayback };
 }

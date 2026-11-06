@@ -295,17 +295,6 @@
       } catch {
       }
     }
-    function destroy() {
-      stopWatchdog();
-      currentKey = "";
-      if (blobUrl) {
-        try {
-          URL.revokeObjectURL(blobUrl);
-        } catch {
-        }
-        blobUrl = null;
-      }
-    }
     return {
       get key() {
         return currentKey;
@@ -314,8 +303,7 @@
         return failed;
       },
       load,
-      reset,
-      destroy
+      reset
     };
   }
 
@@ -431,15 +419,35 @@
     function setVolume(value) {
       el.volume = Math.max(0, Math.min(1, value));
     }
-    function destroy() {
-      el.removeEventListener("timeupdate", onTime);
-      el.removeEventListener("loadedmetadata", onLoadedMetadata);
-      el.removeEventListener("play", onPlay);
-      el.removeEventListener("pause", onPause);
-      el.removeEventListener("ended", onEndedEvent);
-      el.removeEventListener("error", onErrorEvent);
+    return { el, toggle, seekTo, seekRatio, setVolume };
+  }
+
+  // client/playback-store.js
+  var state = {
+    playing: false,
+    now: 0,
+    dur: 0,
+    loading: false,
+    loadPct: 0,
+    error: ""
+  };
+  var listeners = /* @__PURE__ */ new Set();
+  function getPlaybackState() {
+    return state;
+  }
+  function updatePlayback(patch) {
+    let changed = false;
+    for (const [key, value] of Object.entries(patch)) {
+      if (state[key] !== value) {
+        state[key] = value;
+        changed = true;
+      }
     }
-    return { el, snapshot, toggle, seekTo, seekRatio, setVolume, destroy };
+    if (changed) for (const listener of listeners) listener();
+  }
+  function subscribePlayback(listener) {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
   }
 
   // client/audio-engine.js
@@ -447,35 +455,32 @@
   function getAudioEngine() {
     if (engine) return engine;
     const el = getAudio();
-    const handlers = /* @__PURE__ */ new Set();
-    const emit = (name, value) => {
-      for (const handler of handlers) handler(name, value);
-    };
+    const endedHandlers = /* @__PURE__ */ new Set();
     const player = createPlayer({
       element: el,
       diag,
-      onState: (snapshot) => emit("state", snapshot),
-      onError: (message) => emit("error", message),
-      onEnded: () => emit("ended")
+      onState: (snapshot) => updatePlayback({ playing: snapshot.playing, now: snapshot.now, dur: snapshot.dur }),
+      onError: (message) => updatePlayback({ error: message }),
+      onEnded: () => {
+        for (const handler of endedHandlers) handler();
+      }
     });
     const loader = createLoader({
       el,
       diag,
-      onLoading: (value) => emit("loading", value),
-      onProgress: (value) => emit("progress", value),
-      onPlaying: (value) => emit("playing", value),
-      onError: (message) => emit("error", message)
+      onLoading: (value) => updatePlayback({ loading: value }),
+      onProgress: (value) => updatePlayback({ loadPct: value }),
+      onPlaying: (value) => updatePlayback({ playing: value }),
+      onError: (message) => updatePlayback({ error: message })
     });
     engine = {
       player,
       loader,
-      /** 订阅状态事件，返回退订函数。 */
-      subscribe(handler) {
-        handlers.add(handler);
-        return () => handlers.delete(handler);
-      },
-      /** 当前播放快照：重新挂载时用来立刻对齐界面。 */
-      snapshot: () => player.snapshot()
+      /** 订阅「播放结束」，返回退订函数。 */
+      subscribeEnded(handler) {
+        endedHandlers.add(handler);
+        return () => endedHandlers.delete(handler);
+      }
     };
     return engine;
   }
@@ -551,7 +556,7 @@
     const { useCallback, useEffect, useRef, useState } = React;
     const NOTICE_TTL_MS = 2400;
     function useServerState() {
-      const [state, setState] = useState({ current: null, history: [] });
+      const [state2, setState] = useState({ current: null, history: [] });
       const refreshing = useRef(false);
       const mounted = useRef(false);
       const refresh = useCallback(async () => {
@@ -577,7 +582,7 @@
           clearInterval(timer);
         };
       }, [refresh]);
-      return { state, refresh, setState };
+      return { state: state2, refresh, setState };
     }
     function useNotice(anchorRef) {
       const [notice, setNotice] = useState(null);
@@ -628,7 +633,12 @@
       }, [mode]);
       return [mode, setMode];
     }
-    return { useServerState, useNotice, useMode };
+    function usePlayback() {
+      const [, bump] = useState(0);
+      useEffect(() => subscribePlayback(() => bump((value) => value + 1)), []);
+      return getPlaybackState();
+    }
+    return { useServerState, useNotice, useMode, usePlayback };
   }
 
   // client/parts/buttons.js
@@ -993,11 +1003,7 @@
     const HistoryPanel = createHistoryPanel({ React, colors: COLORS, actions: ACTIONS });
     const BarBoundary = createBarBoundary({ React, diag });
     function Bar() {
-      const [playing, setPlaying] = useState(false);
-      const [now, setNow] = useState(0);
-      const [dur, setDur] = useState(0);
       const [pending, setPending] = useState(null);
-      const [error, setError] = useState("");
       const [mode, setMode] = hooks.useMode();
       const [showHistory, setShowHistory] = useState(false);
       const [debugOn, setDebugOn] = useState(() => {
@@ -1015,8 +1021,6 @@
           return 0.8;
         }
       });
-      const [loading, setLoading] = useState(false);
-      const [loadPct, setLoadPct] = useState(0);
       const [switching, setSwitching] = useState(false);
       const autoNextRef = useRef(false);
       const goNextRef = useRef(null);
@@ -1026,9 +1030,10 @@
       const volRef = useRef(0.5);
       const modeRef = useRef("recommend");
       const pendingRef = useRef(false);
-      const { useServerState, useNotice } = hooks;
-      const { state, refresh, setState } = useServerState();
+      const { useServerState, useNotice, usePlayback } = hooks;
+      const { state: state2, refresh, setState } = useServerState();
       const { notice, show: showNotice } = useNotice(barRef);
+      const { playing, now, dur, loading, loadPct, error } = usePlayback();
       useEffect(() => {
         modeRef.current = mode;
       }, [mode]);
@@ -1046,35 +1051,21 @@
       useEffect(() => {
         ensureDockStyle();
       }, []);
-      const current = state.current;
+      const current = state2.current;
       const active = current && current.feedback || null;
       useEffect(() => {
         const engine2 = getAudioEngine();
         engineRef.current = engine2;
         engine2.player.setVolume(volRef.current);
-        const off = engine2.subscribe((name, value) => {
-          if (name === "state") {
-            setPlaying(value.playing);
-            setNow(value.now);
-            setDur(value.dur);
-          } else if (name === "playing") setPlaying(value);
-          else if (name === "loading") setLoading(value);
-          else if (name === "progress") setLoadPct(value);
-          else if (name === "error") setError(value);
-          else if (name === "ended") {
-            if (modeRef.current === "loop") {
-              const { player } = engine2;
-              player.el.currentTime = 0;
-              player.el.play().then(() => setPlaying(true)).catch(() => setError("\u5FAA\u73AF\u64AD\u653E\u88AB\u6D4F\u89C8\u5668\u62E6\u622A\uFF0C\u70B9 \u25B6 \u7EE7\u7EED"));
-              return;
-            }
-            goNextRef.current?.();
+        const off = engine2.subscribeEnded(() => {
+          if (modeRef.current === "loop") {
+            const { player } = engine2;
+            player.el.currentTime = 0;
+            player.el.play().then(() => updatePlayback({ playing: true })).catch(() => updatePlayback({ error: "\u5FAA\u73AF\u64AD\u653E\u88AB\u6D4F\u89C8\u5668\u62E6\u622A\uFF0C\u70B9 \u25B6 \u7EE7\u7EED" }));
+            return;
           }
+          goNextRef.current?.();
         });
-        const snapshot = engine2.snapshot();
-        setPlaying(snapshot.playing);
-        setNow(snapshot.now);
-        setDur(snapshot.dur);
         return () => {
           off();
           engineRef.current = null;
@@ -1086,11 +1077,9 @@
         const key = `${track.bvid}|${track.startedAt || ""}`;
         if (engine2.loader.key === key) return;
         const streamUrl = `${track.stream}?t=${encodeURIComponent(track.startedAt || "")}`;
-        setNow(0);
-        setDur(0);
+        updatePlayback({ now: 0, dur: 0, playing: false });
         const shouldPlay = autoNextRef.current;
         autoNextRef.current = false;
-        setPlaying(false);
         engine2.loader.load({ track, key, shouldPlay, streamUrl });
       }, []);
       useEffect(() => {
@@ -1099,7 +1088,7 @@
       }, [current, loadAndMaybePlay]);
       const toggle = useCallback(async () => {
         if (!current) return;
-        setError("");
+        updatePlayback({ error: "" });
         const engine2 = engineRef.current;
         if (!engine2) return;
         if (engine2.loader.failed || engine2.player.el.error) {
@@ -1110,9 +1099,9 @@
         try {
           await engine2.player.toggle();
         } catch (e) {
-          if (e && e.name === "NotAllowedError") setError("\u6D4F\u89C8\u5668\u62E6\u622A\u4E86\u81EA\u52A8\u64AD\u653E\uFF0C\u70B9\u4E00\u4E0B\u9875\u9762\u518D\u6309 \u25B6");
-          else setError(`\u64AD\u653E\u5931\u8D25\uFF1A${e && e.message || e}`);
-          setPlaying(false);
+          if (e && e.name === "NotAllowedError")
+            updatePlayback({ error: "\u6D4F\u89C8\u5668\u62E6\u622A\u4E86\u81EA\u52A8\u64AD\u653E\uFF0C\u70B9\u4E00\u4E0B\u9875\u9762\u518D\u6309 \u25B6", playing: false });
+          else updatePlayback({ error: `\u64AD\u653E\u5931\u8D25\uFF1A${e && e.message || e}`, playing: false });
         }
       }, [current, loadAndMaybePlay]);
       const go = useCallback(
@@ -1141,7 +1130,9 @@
             await refresh();
           } catch (e) {
             autoNextRef.current = false;
-            setError(`${dir === "next" ? "\u4E0B\u4E00\u9996" : "\u4E0A\u4E00\u9996"}\u5931\u8D25\uFF1A${e.message || e}`);
+            updatePlayback({
+              error: `${dir === "next" ? "\u4E0B\u4E00\u9996" : "\u4E0A\u4E00\u9996"}\u5931\u8D25\uFF1A${e.message || e}`
+            });
           } finally {
             switchingRef.current = false;
             setSwitching(false);
@@ -1166,7 +1157,7 @@
         async (action, targetBvid, ev) => {
           if (pendingRef.current) return;
           const bvid = targetBvid || current && current.bvid;
-          const curFb = targetBvid ? (state.history.find((x) => x.bvid === targetBvid) || {}).feedback : active;
+          const curFb = targetBvid ? (state2.history.find((x) => x.bvid === targetBvid) || {}).feedback : active;
           const next = curFb === action ? "clear" : action;
           pendingRef.current = true;
           setPending(action + (targetBvid || ""));
@@ -1205,7 +1196,7 @@
             setPending(null);
           }
         },
-        [active, current, refresh, showNotice, state.history]
+        [active, current, refresh, showNotice, state2.history]
       );
       if (!current) return null;
       const iconBtn = (glyph, title, onClick, opts = {}) => buttons.iconButton({ glyph, title, onClick, ...opts });
@@ -1370,7 +1361,7 @@
         h(ErrorToast, { message: error }),
         h(HistoryPanel, {
           open: showHistory,
-          history: state.history,
+          history: state2.history,
           currentBvid: current.bvid,
           onClose: () => setShowHistory(false),
           onFeedback: send

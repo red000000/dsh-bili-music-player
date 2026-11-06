@@ -148,14 +148,5 @@ export function createPlayer({ diag, onState, onError, onEnded, element }) {
     el.volume = Math.max(0, Math.min(1, value));
   }
 
-  function destroy() {
-    el.removeEventListener('timeupdate', onTime);
-    el.removeEventListener('loadedmetadata', onLoadedMetadata);
-    el.removeEventListener('play', onPlay);
-    el.removeEventListener('pause', onPause);
-    el.removeEventListener('ended', onEndedEvent);
-    el.removeEventListener('error', onErrorEvent);
-  }
-
-  return { el, snapshot, toggle, seekTo, seekRatio, setVolume, destroy };
+  return { el, toggle, seekTo, seekRatio, setVolume };
 }

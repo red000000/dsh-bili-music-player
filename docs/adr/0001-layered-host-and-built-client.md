@@ -34,7 +34,8 @@ Client 侧还有一条硬约束：DSH 运行时以 lazy-CJS 加载预打包 bund
 |---|---|
 | `client/loader.js` | 资源加载：MSE 分片流、整首 blob 兜底、看门狗与取消 |
 | `client/player.js` | 音频外部系统：媒体监听、时长修正、seek、播放开关 |
-| `client/audio-engine.js` | 模块级音频引擎：播放器/加载器单例与订阅，切会话不打断播放 |
+| `client/audio-engine.js` | 模块级音频引擎：播放器/加载器单例，切会话不打断播放 |
+| `client/playback-store.js` | 播放状态的模块级单一来源：进度、加载百分比、错误 |
 | `client/hooks.js` | `useServerState`（轮询）、`useNotice`（浮层）、`useMode`（模式持久化） |
 | `client/theme.js` | 颜色令牌、反馈动作定义、dock 样式注入 |
 | `client/bar-boundary.js` | 播放条渲染错误的兜底界面 |
@@ -44,6 +45,6 @@ Client 侧还有一条硬约束：DSH 运行时以 lazy-CJS 加载预打包 bund
 | `client/parts/feedback.js` | 反馈区三个按钮 |
 | `client/parts/notice.js` | 浮动提示与错误条 |
 
-`bar.js` 由 999 行降到 474 行，剩余内容是组件状态、请求时序与区块摆放。
+`bar.js` 由 999 行降到 456 行，剩余内容是组件状态、请求时序与区块摆放。
 
 加载逻辑单独成 `loader.js` 而不是并进 `player.js`：player 管「元素上的事件与 seek」，loader 管「资源怎么到手」，两者互不认识；合并会让 player 同时依赖 fetch、MediaSource 与媒体事件，测试也得一起造假。

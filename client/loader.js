@@ -331,19 +331,6 @@ export function createLoader({ el, diag, onLoading, onProgress, onPlaying, onErr
     }
   }
 
-  function destroy() {
-    stopWatchdog();
-    currentKey = '';
-    if (blobUrl) {
-      try {
-        URL.revokeObjectURL(blobUrl);
-      } catch {
-        /* 忽略 */
-      }
-      blobUrl = null;
-    }
-  }
-
   return {
     get key() {
       return currentKey;
@@ -353,6 +340,5 @@ export function createLoader({ el, diag, onLoading, onProgress, onPlaying, onErr
     },
     load,
     reset,
-    destroy,
   };
 }
