@@ -43,9 +43,15 @@ bili_music_import({ cookieFile: "C:/path/cookies.json", profileFile: "C:/path/pr
 
 ## 开发
 
-- `index.js` 是入口，Host 逻辑在 `src/plugin.js`，Web 播放条在 `client.js`
-- 改完做语法检查：`node --check index.js; node --check client.js`
-- 回归脚本在 `tests/`，跑之前需要有登录态与画像
+Host 逻辑在 `src/`（`adapters` 接外部、`domain` 放规则、`surface` 放路由与工具），播放条源码在 `client/`。
+
+```sh
+npm run lint    # ESLint
+npm test        # node --test 冒烟，不联网
+npm run build   # 由 client/ 生成 client.js
+```
+
+改完 `client/` 必须重新构建；`tests/` 下另有联网回归脚本，跑之前需要有登录态与画像。
 
 ## 许可
 

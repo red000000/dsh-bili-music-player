@@ -1,0 +1,6 @@
+node_modules/
+client.js
+package-lock.json
+cordis.patch.yml
+locale/
+*.md

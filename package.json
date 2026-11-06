@@ -1,6 +1,6 @@
 {
   "name": "dsh-bili-music-player",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "description": "B 站音乐点歌助手：按画像推荐、软反馈、在线兜底，附带播放条与音频缓存代理",
   "license": "AGPL-3.0-only",
@@ -24,14 +24,15 @@
   },
   "files": [
     "index.js",
-    "src/*.js",
+    "src/**/*.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "docs/adr/*.md"
   ],
   "dsh": {
     "bundle": {
@@ -49,5 +50,19 @@
     "type": "git",
     "url": "git+https://github.com/red000000/dsh-bili-music-player.git"
   },
-  "homepage": "https://github.com/red000000/dsh-bili-music-player#readme"
+  "homepage": "https://github.com/red000000/dsh-bili-music-player#readme",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "eslint": "^10.14.0",
+    "prettier": "^3.9.10"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  },
+  "scripts": {
+    "build": "esbuild client/index.js --bundle --format=iife --platform=browser --target=chrome110 --legal-comments=none --outfile=client.js",
+    "test": "node --test --test-isolation=none tests/*.test.mjs",
+    "format": "prettier --write src client index.js tests eslint.config.js .prettierrc.json package.json",
+    "lint": "eslint ."
+  }
 }
